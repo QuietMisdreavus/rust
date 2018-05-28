@@ -15,6 +15,7 @@
 #![feature(crate_visibility_modifier)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(slice_sort_by_cached_key)]
+#![feature(entry_or_default)]
 
 #[macro_use]
 extern crate log;
@@ -27,7 +28,8 @@ extern crate arena;
 extern crate rustc;
 extern crate rustc_data_structures;
 
-use self::Namespace::*;
+pub use rustc::hir::def::{Namespace, PerNS};
+
 use self::TypeParameters::*;
 use self::RibKind::*;
 
@@ -37,7 +39,9 @@ use rustc::middle::cstore::{CrateStore, CrateLoader};
 use rustc::session::Session;
 use rustc::lint;
 use rustc::hir::def::*;
+use rustc::hir::def::Namespace::*;
 use rustc::hir::def_id::{CRATE_DEF_INDEX, LOCAL_CRATE, DefId};
+use rustc::hir::lowering::Resolver as ResolverTrait;
 use rustc::ty;
 use rustc::hir::{Freevar, FreevarMap, TraitCandidate, TraitMap, GlobMap};
 use rustc::util::nodemap::{NodeMap, NodeSet, FxHashMap, FxHashSet, DefIdMap};
@@ -614,45 +618,6 @@ impl<'a> PathSource<'a> {
     }
 }
 
-/// Different kinds of symbols don't influence each other.
-///
-/// Therefore, they have a separate universe (namespace).
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum Namespace {
-    TypeNS,
-    ValueNS,
-    MacroNS,
-}
-
-/// Just a helper ‒ separate structure for each namespace.
-#[derive(Clone, Default, Debug)]
-pub struct PerNS<T> {
-    value_ns: T,
-    type_ns: T,
-    macro_ns: T,
-}
-
-impl<T> ::std::ops::Index<Namespace> for PerNS<T> {
-    type Output = T;
-    fn index(&self, ns: Namespace) -> &T {
-        match ns {
-            ValueNS => &self.value_ns,
-            TypeNS => &self.type_ns,
-            MacroNS => &self.macro_ns,
-        }
-    }
-}
-
-impl<T> ::std::ops::IndexMut<Namespace> for PerNS<T> {
-    fn index_mut(&mut self, ns: Namespace) -> &mut T {
-        match ns {
-            ValueNS => &mut self.value_ns,
-            TypeNS => &mut self.type_ns,
-            MacroNS => &mut self.macro_ns,
-        }
-    }
-}
-
 struct UsePlacementFinder {
     target_module: NodeId,
     span: Option<Span>,
@@ -752,7 +717,7 @@ impl<'a, 'tcx> Visitor<'tcx> for Resolver<'a> {
                 let self_ty = keywords::SelfType.ident();
                 let def = self.resolve_ident_in_lexical_scope(self_ty, TypeNS, true, ty.span)
                               .map_or(Def::Err, |d| d.def());
-                self.record_def(ty.id, PathResolution::new(def));
+                self.record_def(ty.id, TypeNS, PathResolution::new(def));
             }
             _ => (),
         }
@@ -1512,7 +1477,17 @@ impl<'a> hir::lowering::Resolver for Resolver<'a> {
     }
 
     fn get_resolution(&mut self, id: NodeId) -> Option<PathResolution> {
-        self.def_map.get(&id).cloned()
+        //for people calling this one, they don't necessarily care which namespace it's in, so just
+        //have a preference but check all of them
+        if let Some(def) = self.def_map.get(&id) {
+            for ns in [TypeNS, ValueNS, MacroNS].iter().cloned() {
+                if let Some(res) = def[ns] {
+                    return Some(res);
+                }
+            }
+        }
+
+        None
     }
 
     fn definitions(&mut self) -> &mut Definitions {
@@ -2241,7 +2216,7 @@ impl<'a> Resolver<'a> {
                         let def_id = self.definitions.local_def_id(type_parameter.id);
                         let def = Def::TyParam(def_id);
                         function_type_rib.bindings.insert(ident, def);
-                        self.record_def(type_parameter.id, PathResolution::new(def));
+                        self.record_def(type_parameter.id, TypeNS, PathResolution::new(def));
                     }
                 }
                 self.ribs[TypeNS].push(function_type_rib);
@@ -2454,7 +2429,9 @@ impl<'a> Resolver<'a> {
 
         pat.walk(&mut |pat| {
             if let PatKind::Ident(binding_mode, ident, ref sub_pat) = pat.node {
-                if sub_pat.is_some() || match self.def_map.get(&pat.id).map(|res| res.base_def()) {
+                //FIXME(misdreavus): `get_resolution` is the "i don't care what namespace" version,
+                //is that valid?
+                if sub_pat.is_some() || match self.get_resolution(pat.id).map(|res| res.base_def()) {
                     Some(Def::Local(..)) => true,
                     _ => false,
                 } {
@@ -2710,7 +2687,7 @@ impl<'a> Resolver<'a> {
                         self.fresh_binding(ident, pat.id, outer_pat_id, pat_src, bindings)
                     });
 
-                    self.record_def(pat.id, resolution);
+                    self.record_def(pat.id, ValueNS, resolution);
                 }
 
                 PatKind::TupleStruct(ref path, ..) => {
@@ -3026,7 +3003,7 @@ impl<'a> Resolver<'a> {
 
         if let PathSource::TraitItem(..) = source {} else {
             // Avoid recording definition of `A::B` in `<T as A>::B::C`.
-            self.record_def(id, resolution);
+            self.record_def(id, ns, resolution);
         }
         resolution
     }
@@ -3624,7 +3601,7 @@ impl<'a> Resolver<'a> {
         if filter_fn(Def::Local(ast::DUMMY_NODE_ID)) {
             if let Some(node_id) = self.current_self_type.as_ref().and_then(extract_node_id) {
                 // Look for a field with the same name in the current self_type.
-                if let Some(resolution) = self.def_map.get(&node_id) {
+                if let Some(resolution) = self.get_resolution(node_id) {
                     match resolution.base_def() {
                         Def::Struct(did) | Def::Union(did)
                                 if resolution.unresolved_segments() == 0 => {
@@ -3777,7 +3754,7 @@ impl<'a> Resolver<'a> {
                             let names = rib.bindings.iter().map(|(id, _)| &id.name);
                             find_best_match_for_name(names, &*ident.as_str(), None)
                         });
-                        self.record_def(expr.id, err_path_resolution());
+                        self.record_def(expr.id, ValueNS, err_path_resolution());
                         resolve_error(self,
                                       label.ident.span,
                                       ResolutionError::UndeclaredLabel(&label.ident.as_str(),
@@ -3785,7 +3762,7 @@ impl<'a> Resolver<'a> {
                     }
                     Some(Def::Label(id)) => {
                         // Since this def is a label, it is never read.
-                        self.record_def(expr.id, PathResolution::new(Def::Label(id)));
+                        self.record_def(expr.id, ValueNS, PathResolution::new(Def::Label(id)));
                         self.unused_labels.remove(&id);
                     }
                     Some(_) => {
@@ -4111,9 +4088,10 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    fn record_def(&mut self, node_id: NodeId, resolution: PathResolution) {
+    fn record_def(&mut self, node_id: NodeId, ns: Namespace, resolution: PathResolution) {
         debug!("(recording def) recording {:?} for {}", resolution, node_id);
-        if let Some(prev_res) = self.def_map.insert(node_id, resolution) {
+        let record = self.def_map.entry(node_id).or_default();
+        if let Some(prev_res) = replace(&mut record[ns], Some(resolution)) {
             panic!("path resolved multiple times ({:?} before, {:?} now)", prev_res, resolution);
         }
     }

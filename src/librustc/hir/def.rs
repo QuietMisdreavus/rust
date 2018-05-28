@@ -16,6 +16,8 @@ use syntax_pos::Span;
 use hir;
 use ty;
 
+use self::Namespace::*;
+
 #[derive(Clone, Copy, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
 pub enum CtorKind {
     /// Constructor function automatically created by a tuple struct/variant.
@@ -116,8 +118,47 @@ impl PathResolution {
     }
 }
 
+/// Different kinds of symbols don't influence each other.
+///
+/// Therefore, they have a separate universe (namespace).
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum Namespace {
+    TypeNS,
+    ValueNS,
+    MacroNS,
+}
+
+/// Just a helper ‒ separate structure for each namespace.
+#[derive(Clone, Default, Debug)]
+pub struct PerNS<T> {
+    pub value_ns: T,
+    pub type_ns: T,
+    pub macro_ns: T,
+}
+
+impl<T> ::std::ops::Index<Namespace> for PerNS<T> {
+    type Output = T;
+    fn index(&self, ns: Namespace) -> &T {
+        match ns {
+            ValueNS => &self.value_ns,
+            TypeNS => &self.type_ns,
+            MacroNS => &self.macro_ns,
+        }
+    }
+}
+
+impl<T> ::std::ops::IndexMut<Namespace> for PerNS<T> {
+    fn index_mut(&mut self, ns: Namespace) -> &mut T {
+        match ns {
+            ValueNS => &mut self.value_ns,
+            TypeNS => &mut self.type_ns,
+            MacroNS => &mut self.macro_ns,
+        }
+    }
+}
+
 /// Definition mapping
-pub type DefMap = NodeMap<PathResolution>;
+pub type DefMap = NodeMap<PerNS<Option<PathResolution>>>;
 
 /// This is the replacement export map. It maps a module to all of the exports
 /// within.
