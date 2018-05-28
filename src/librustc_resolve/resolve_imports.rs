@@ -10,8 +10,8 @@
 
 use self::ImportDirectiveSubclass::*;
 
-use {AmbiguityError, CrateLint, Module, PerNS};
-use Namespace::{self, TypeNS, MacroNS};
+use {AmbiguityError, CrateLint, Module, PerNS, Namespace};
+use Namespace::*;
 use {NameBinding, NameBindingKind, ToNameBinding, PathResult, PrivacyError};
 use Resolver;
 use {names_to_string, module_to_string};
@@ -917,7 +917,8 @@ impl<'a, 'b:'a> ImportResolver<'a, 'b> {
         // this may resolve to either a value or a type, but for documentation
         // purposes it's good enough to just favor one over the other.
         self.per_ns(|this, ns| if let Some(binding) = result[ns].get().ok() {
-            this.def_map.entry(directive.id).or_insert(PathResolution::new(binding.def()));
+            let def = this.def_map.entry(directive.id).or_default();
+            def[ns] = Some(PathResolution::new(binding.def()));
         });
 
         debug!("(resolving single import) successfully resolved import");
@@ -960,7 +961,8 @@ impl<'a, 'b:'a> ImportResolver<'a, 'b> {
         }
 
         // Record the destination of this import
-        self.record_def(directive.id, PathResolution::new(module.def().unwrap()));
+        // FIXME(misdreavus): this was a guess based on the fact that it's recording a module
+        self.record_def(directive.id, TypeNS, PathResolution::new(module.def().unwrap()));
     }
 
     // Miscellaneous post-processing, including recording re-exports,
