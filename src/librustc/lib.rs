@@ -68,6 +68,7 @@
 #![feature(trusted_len)]
 #![feature(catch_expr)]
 #![feature(test)]
+#![feature(vec_resize_with)]
 
 #![recursion_limit="512"]
 

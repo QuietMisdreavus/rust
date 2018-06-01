@@ -456,9 +456,11 @@ pub fn walk_item<'v, V: Visitor<'v>>(visitor: &mut V, item: &'v Item) {
                 visitor.visit_name(item.span, orig_name);
             }
         }
-        ItemUse(ref path, _) => {
+        ItemUse(ref paths, _) => {
             visitor.visit_id(item.id);
-            visitor.visit_path(path, item.id);
+            for p in paths {
+                visitor.visit_path(p, item.id);
+            }
         }
         ItemStatic(ref typ, _, body) |
         ItemConst(ref typ, body) => {

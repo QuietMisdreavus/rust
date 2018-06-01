@@ -1490,6 +1490,10 @@ impl<'a> hir::lowering::Resolver for Resolver<'a> {
         None
     }
 
+    fn get_all_resolutions(&mut self, id: NodeId) -> PerNS<Option<PathResolution>> {
+        self.def_map.get(&id).cloned().unwrap_or_default()
+    }
+
     fn definitions(&mut self) -> &mut Definitions {
         &mut self.definitions
     }

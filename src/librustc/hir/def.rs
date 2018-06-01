@@ -16,6 +16,8 @@ use syntax_pos::Span;
 use hir;
 use ty;
 
+use std::iter::{once, Once, Chain};
+
 use self::Namespace::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
@@ -136,6 +138,24 @@ pub struct PerNS<T> {
     pub macro_ns: T,
 }
 
+impl<T> PerNS<T> {
+    /// Applies the given function to every item in the collection, returning the result.
+    pub fn map<U, F: FnMut(T) -> U>(self, mut f: F) -> PerNS<U> {
+        PerNS {
+            value_ns: f(self.value_ns),
+            type_ns: f(self.type_ns),
+            macro_ns: f(self.macro_ns),
+        }
+    }
+}
+
+impl<T> PerNS<Option<T>> {
+    /// Returns whether there are no items in any namespace.
+    pub fn is_empty(&self) -> bool {
+        self.value_ns.is_none() && self.type_ns.is_none() && self.macro_ns.is_none()
+    }
+}
+
 impl<T> ::std::ops::Index<Namespace> for PerNS<T> {
     type Output = T;
     fn index(&self, ns: Namespace) -> &T {
@@ -154,6 +174,16 @@ impl<T> ::std::ops::IndexMut<Namespace> for PerNS<T> {
             TypeNS => &mut self.type_ns,
             MacroNS => &mut self.macro_ns,
         }
+    }
+}
+
+/// Iterates over the namespaces: first the Type, then the Value, then the Macro.
+impl<T> IntoIterator for PerNS<T> {
+    type Item = T;
+    type IntoIter = Chain<Chain<Once<T>, Once<T>>, Once<T>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        once(self.type_ns).chain(once(self.value_ns)).chain(once(self.macro_ns))
     }
 }
 

@@ -2063,7 +2063,10 @@ pub enum Item_ {
     /// or just
     ///
     /// `use foo::bar::baz;` (with `as baz` implicitly on the right)
-    ItemUse(P<Path>, UseKind),
+    ///
+    /// Since a `use` statement can reference multiple items (type/value/macro), multiple `Path`s
+    /// may be referenced here.
+    ItemUse(HirVec<Path>, UseKind),
 
     /// A `static` item
     ItemStatic(P<Ty>, Mutability, BodyId),

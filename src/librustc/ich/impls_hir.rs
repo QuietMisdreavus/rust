@@ -874,7 +874,7 @@ impl<'a> HashStable<StableHashingContext<'a>> for hir::Item {
 
 impl_stable_hash_for!(enum hir::Item_ {
     ItemExternCrate(orig_name),
-    ItemUse(path, use_kind),
+    ItemUse(paths, use_kind),
     ItemStatic(ty, mutability, body_id),
     ItemConst(ty, body_id),
     ItemFn(fn_decl, unsafety, constness, abi, generics, body_id),

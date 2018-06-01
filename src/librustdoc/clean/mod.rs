@@ -270,12 +270,14 @@ impl Clean<ExternalCrate> for CrateNum {
                     hir::ItemMod(_) => {
                         as_primitive(Def::Mod(cx.tcx.hir.local_def_id(id.id)))
                     }
-                    hir::ItemUse(ref path, hir::UseKind::Single)
+                    hir::ItemUse(ref paths, hir::UseKind::Single)
                     if item.vis == hir::Visibility::Public => {
-                        as_primitive(path.def).map(|(_, prim, attrs)| {
-                            // Pretend the primitive is local.
-                            (cx.tcx.hir.local_def_id(id.id), prim, attrs)
-                        })
+                        paths.iter().filter_map(|path| {
+                            as_primitive(path.def).map(|(_, prim, attrs)| {
+                                // Pretend the primitive is local.
+                                (cx.tcx.hir.local_def_id(id.id), prim, attrs)
+                            })
+                        }).next()
                     }
                     _ => None
                 }

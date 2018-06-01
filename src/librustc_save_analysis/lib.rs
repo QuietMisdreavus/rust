@@ -626,10 +626,11 @@ impl<'l, 'tcx: 'l> SaveContext<'l, 'tcx> {
         match self.tcx.hir.get(id) {
             Node::NodeTraitRef(tr) => tr.path.def,
 
-            Node::NodeItem(&hir::Item {
-                node: hir::ItemUse(ref path, _),
-                ..
-            }) |
+            //Node::NodeItem(&hir::Item {
+            //    // FIXME: path is multiple paths now
+            //    node: hir::ItemUse(ref path, _),
+            //    ..
+            //}) |
             Node::NodeVisibility(&hir::Visibility::Restricted { ref path, .. }) => path.def,
 
             Node::NodeExpr(&hir::Expr {

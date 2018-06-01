@@ -50,8 +50,8 @@ impl<'a, 'tcx, 'v> ItemLikeVisitor<'v> for CheckVisitor<'a, 'tcx> {
         if item.vis == hir::Public || item.span == DUMMY_SP {
             return;
         }
-        if let hir::ItemUse(ref path, _) = item.node {
-            self.check_import(item.id, path.span);
+        if let hir::ItemUse(ref paths, _) = item.node {
+            self.check_import(item.id, paths[0].span);
         }
     }
 

@@ -409,40 +409,42 @@ impl<'a, 'tcx, 'rcx> RustdocVisitor<'a, 'tcx, 'rcx> {
                 })
             }
             hir::ItemUse(_, hir::UseKind::ListStem) => {}
-            hir::ItemUse(ref path, kind) => {
+            hir::ItemUse(ref paths, kind) => {
                 let is_glob = kind == hir::UseKind::Glob;
 
-                // If there was a private module in the current path then don't bother inlining
-                // anything as it will probably be stripped anyway.
-                if item.vis == hir::Public && self.inside_public_path {
-                    let please_inline = item.attrs.iter().any(|item| {
-                        match item.meta_item_list() {
-                            Some(ref list) if item.check_name("doc") => {
-                                list.iter().any(|i| i.check_name("inline"))
+                for path in paths {
+                    // If there was a private module in the current path then don't bother inlining
+                    // anything as it will probably be stripped anyway.
+                    if item.vis == hir::Public && self.inside_public_path {
+                        let please_inline = item.attrs.iter().any(|item| {
+                            match item.meta_item_list() {
+                                Some(ref list) if item.check_name("doc") => {
+                                    list.iter().any(|i| i.check_name("inline"))
+                                }
+                                _ => false,
                             }
-                            _ => false,
+                        });
+                        let name = if is_glob { None } else { Some(name) };
+                        if self.maybe_inline_local(item.id,
+                                                   path.def,
+                                                   name,
+                                                   is_glob,
+                                                   om,
+                                                   please_inline) {
+                            return;
                         }
-                    });
-                    let name = if is_glob { None } else { Some(name) };
-                    if self.maybe_inline_local(item.id,
-                                               path.def,
-                                               name,
-                                               is_glob,
-                                               om,
-                                               please_inline) {
-                        return;
                     }
-                }
 
-                om.imports.push(Import {
-                    name,
-                    id: item.id,
-                    vis: item.vis.clone(),
-                    attrs: item.attrs.clone(),
-                    path: (**path).clone(),
-                    glob: is_glob,
-                    whence: item.span,
-                });
+                    om.imports.push(Import {
+                        name,
+                        id: item.id,
+                        vis: item.vis.clone(),
+                        attrs: item.attrs.clone(),
+                        path: (*path).clone(),
+                        glob: is_glob,
+                        whence: item.span,
+                    });
+                }
             }
             hir::ItemMod(ref m) => {
                 om.mods.push(self.visit_mod_contents(item.span,

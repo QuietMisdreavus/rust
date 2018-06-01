@@ -537,7 +537,10 @@ impl<'a> State<'a> {
                 self.end()?; // end inner head-block
                 self.end()?; // end outer head-block
             }
-            hir::ItemUse(ref path, kind) => {
+            hir::ItemUse(ref paths, kind) => {
+                // a use statement can refer to multiple `Def`s, but for our purposes we don't need
+                // to care - just grab the first
+                let path = paths.first().unwrap();
                 self.head(&visibility_qualified(&item.vis, "use"))?;
                 self.print_path(path, false)?;
 
