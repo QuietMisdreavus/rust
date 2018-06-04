@@ -260,7 +260,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
                             }
                             hir::ExprPath(ref qpath) => {  // local binding
                                 if let &hir::QPath::Resolved(_, ref path) = &qpath {
-                                    if let hir::def::Def::Local(node_id) = path.def {
+                                    if let hir::def::Def::Local(node_id) = path.defs.value_ns {
                                         let span = tcx.hir.span(node_id);
                                         let snippet = tcx.sess.codemap().span_to_snippet(span)
                                             .unwrap();

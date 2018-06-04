@@ -411,6 +411,7 @@ impl<'a, 'tcx, 'rcx> RustdocVisitor<'a, 'tcx, 'rcx> {
             hir::ItemUse(_, hir::UseKind::ListStem) => {}
             hir::ItemUse(ref path, kind) => {
                 let is_glob = kind == hir::UseKind::Glob;
+                let mut path = (**path).clone();
 
                 // If there was a private module in the current path then don't bother inlining
                 // anything as it will probably be stripped anyway.
@@ -424,12 +425,13 @@ impl<'a, 'tcx, 'rcx> RustdocVisitor<'a, 'tcx, 'rcx> {
                         }
                     });
                     let name = if is_glob { None } else { Some(name) };
-                    if self.maybe_inline_local(item.id,
-                                               path.def,
-                                               name,
-                                               is_glob,
-                                               om,
-                                               please_inline) {
+                    for ns in path.defs.valid_defs().filter(|&d| {
+                        self.maybe_inline_local(item.id, d, name, is_glob, om, please_inline)
+                    }).filter_map(|d| d.namespace()) {
+                        path.defs[ns] = Def::Err;
+                    }
+
+                    if path.defs.all_err() {
                         return;
                     }
                 }
@@ -439,7 +441,7 @@ impl<'a, 'tcx, 'rcx> RustdocVisitor<'a, 'tcx, 'rcx> {
                     id: item.id,
                     vis: item.vis.clone(),
                     attrs: item.attrs.clone(),
-                    path: (**path).clone(),
+                    path,
                     glob: is_glob,
                     whence: item.span,
                 });

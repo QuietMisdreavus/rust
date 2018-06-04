@@ -17,7 +17,7 @@ use hir::{self, PatKind};
 use hir::intravisit::{self, Visitor, NestedVisitorMap};
 use hir::itemlikevisit::ItemLikeVisitor;
 
-use hir::def::Def;
+use hir::def::{Def, PerNS};
 use hir::def_id::{DefId, LOCAL_CRATE};
 use lint;
 use middle::privacy;
@@ -73,24 +73,32 @@ impl<'a, 'tcx> MarkSymbolVisitor<'a, 'tcx> {
         }
     }
 
-    fn handle_definition(&mut self, def: Def) {
-        match def {
-            Def::Const(_) | Def::AssociatedConst(..) | Def::TyAlias(_) => {
-                self.check_def_id(def.def_id());
-            }
-            _ if self.in_pat => (),
-            Def::PrimTy(..) | Def::SelfTy(..) |
-            Def::Local(..) | Def::Upvar(..) => {}
-            Def::Variant(variant_id) | Def::VariantCtor(variant_id, ..) => {
-                if let Some(enum_id) = self.tcx.parent_def_id(variant_id) {
-                    self.check_def_id(enum_id);
+    fn handle_definition(&mut self, defs: PerNS<Def>) {
+        if defs.all_err() {
+            self.check_def_id((Def::Err).def_id());
+            return;
+        }
+
+        for def in defs {
+            match def {
+                Def::Err => {}
+                Def::Const(_) | Def::AssociatedConst(..) | Def::TyAlias(_) => {
+                    self.check_def_id(def.def_id());
                 }
-                if !self.ignore_variant_stack.contains(&variant_id) {
-                    self.check_def_id(variant_id);
+                _ if self.in_pat => (),
+                Def::PrimTy(..) | Def::SelfTy(..) |
+                Def::Local(..) | Def::Upvar(..) => {}
+                Def::Variant(variant_id) | Def::VariantCtor(variant_id, ..) => {
+                    if let Some(enum_id) = self.tcx.parent_def_id(variant_id) {
+                        self.check_def_id(enum_id);
+                    }
+                    if !self.ignore_variant_stack.contains(&variant_id) {
+                        self.check_def_id(variant_id);
+                    }
                 }
-            }
-            _ => {
-                self.check_def_id(def.def_id());
+                _ => {
+                    self.check_def_id(def.def_id());
+                }
             }
         }
     }
@@ -223,7 +231,7 @@ impl<'a, 'tcx> Visitor<'tcx> for MarkSymbolVisitor<'a, 'tcx> {
         match expr.node {
             hir::ExprPath(ref qpath @ hir::QPath::TypeRelative(..)) => {
                 let def = self.tables.qpath_def(qpath, expr.hir_id);
-                self.handle_definition(def);
+                self.handle_definition(def.into());
             }
             hir::ExprMethodCall(..) => {
                 self.lookup_and_handle_method(expr.hir_id);
@@ -261,11 +269,13 @@ impl<'a, 'tcx> Visitor<'tcx> for MarkSymbolVisitor<'a, 'tcx> {
     fn visit_pat(&mut self, pat: &'tcx hir::Pat) {
         match pat.node {
             PatKind::Struct(hir::QPath::Resolved(_, ref path), ref fields, _) => {
-                self.handle_field_pattern_match(pat, path.def, fields);
+                for def in path.defs.valid_defs() {
+                    self.handle_field_pattern_match(pat, def, fields);
+                }
             }
             PatKind::Path(ref qpath @ hir::QPath::TypeRelative(..)) => {
                 let def = self.tables.qpath_def(qpath, pat.hir_id);
-                self.handle_definition(def);
+                self.handle_definition(def.into());
             }
             _ => ()
         }
@@ -276,7 +286,7 @@ impl<'a, 'tcx> Visitor<'tcx> for MarkSymbolVisitor<'a, 'tcx> {
     }
 
     fn visit_path(&mut self, path: &'tcx hir::Path, _: ast::NodeId) {
-        self.handle_definition(path.def);
+        self.handle_definition(path.defs);
         intravisit::walk_path(self, path);
     }
 }

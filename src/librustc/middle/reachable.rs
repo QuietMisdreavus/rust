@@ -348,7 +348,7 @@ impl<'a, 'tcx: 'a> ItemLikeVisitor<'tcx> for CollectPrivateImplItemsVisitor<'a, 
                     self.worklist.push(impl_item_ref.id.node_id);
                 }
 
-                let trait_def_id = match trait_ref.path.def {
+                let trait_def_id = match trait_ref.path.defs.type_ns {
                     Def::Trait(def_id) => def_id,
                     _ => unreachable!()
                 };

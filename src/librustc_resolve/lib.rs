@@ -1466,7 +1466,7 @@ impl<'a> hir::lowering::Resolver for Resolver<'a> {
                         components: &[&str], is_value: bool) -> hir::Path {
         let mut path = hir::Path {
             span,
-            def: Def::Err,
+            defs: Default::default(),
             segments: iter::once(keywords::CrateRoot.name()).chain({
                 crate_root.into_iter().chain(components.iter().cloned()).map(Symbol::intern)
             }).map(hir::PathSegment::from_name).collect(),
@@ -1512,7 +1512,7 @@ impl<'a> Resolver<'a> {
         let mut path = if path_str.starts_with("::") {
             hir::Path {
                 span,
-                def: Def::Err,
+                defs: Default::default(),
                 segments: iter::once(keywords::CrateRoot.name()).chain({
                     path_str.split("::").skip(1).map(Symbol::intern)
                 }).map(hir::PathSegment::from_name).collect(),
@@ -1520,13 +1520,13 @@ impl<'a> Resolver<'a> {
         } else {
             hir::Path {
                 span,
-                def: Def::Err,
+                defs: Default::default(),
                 segments: path_str.split("::").map(Symbol::intern)
                                   .map(hir::PathSegment::from_name).collect(),
             }
         };
         self.resolve_hir_path_cb(&mut path, is_value, |_, _, _| errored = true);
-        if errored || path.def == Def::Err {
+        if errored || path.defs.all_err() {
             Err(())
         } else {
             Ok(path)
@@ -1538,15 +1538,15 @@ impl<'a> Resolver<'a> {
             where F: for<'c, 'b> FnOnce(&'c mut Resolver, Span, ResolutionError<'b>)
         {
         let namespace = if is_value { ValueNS } else { TypeNS };
-        let hir::Path { ref segments, span, ref mut def } = *path;
+        let hir::Path { ref segments, span, ref mut defs } = *path;
         let path: Vec<Ident> = segments.iter()
             .map(|seg| Ident::new(seg.name, span))
             .collect();
         // FIXME (Manishearth): Intra doc links won't get warned of epoch changes
         match self.resolve_path(&path, Some(namespace), true, span, CrateLint::No) {
-            PathResult::Module(module) => *def = module.def().unwrap(),
+            PathResult::Module(module) => defs[namespace] = module.def().unwrap(),
             PathResult::NonModule(path_res) if path_res.unresolved_segments() == 0 =>
-                *def = path_res.base_def(),
+                defs[namespace] = path_res.base_def(),
             PathResult::NonModule(..) => match self.resolve_path(
                 &path,
                 None,

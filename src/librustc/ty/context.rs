@@ -455,7 +455,7 @@ impl<'tcx> TypeckTables<'tcx> {
     /// Returns the final resolution of a `QPath` in an `Expr` or `Pat` node.
     pub fn qpath_def(&self, qpath: &hir::QPath, id: hir::HirId) -> Def {
         match *qpath {
-            hir::QPath::Resolved(_, ref path) => path.def,
+            hir::QPath::Resolved(_, ref path) => path.defs.assert_single_ns(),
             hir::QPath::TypeRelative(..) => {
                 validate_hir_id_for_typeck_tables(self.local_id_root, id, false);
                 self.type_dependent_defs.get(&id.local_id).cloned().unwrap_or(Def::Err)

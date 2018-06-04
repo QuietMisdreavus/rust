@@ -457,8 +457,8 @@ fn visit_expr<'a, 'tcx>(ir: &mut IrMaps<'a, 'tcx>, expr: &'tcx Expr) {
     match expr.node {
       // live nodes required for uses or definitions of variables:
       hir::ExprPath(hir::QPath::Resolved(_, ref path)) => {
-        debug!("expr {}: path that leads to {:?}", expr.id, path.def);
-        if let Def::Local(..) = path.def {
+        debug!("expr {}: path that leads to {:?}", expr.id, path.defs);
+        if let Def::Local(..) = path.defs.value_ns {
             ir.add_live_node_for_node(expr.hir_id, ExprNode(expr.span));
         }
         intravisit::walk_expr(ir, expr);
@@ -1268,7 +1268,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
 
     fn access_path(&mut self, hir_id: HirId, path: &hir::Path, succ: LiveNode, acc: u32)
                    -> LiveNode {
-        match path.def {
+        match path.defs.value_ns {
           Def::Local(nid) => {
             self.access_var(hir_id, nid, succ, acc, path.span)
           }
@@ -1445,7 +1445,7 @@ impl<'a, 'tcx> Liveness<'a, 'tcx> {
     fn check_place(&mut self, expr: &'tcx Expr) {
         match expr.node {
             hir::ExprPath(hir::QPath::Resolved(_, ref path)) => {
-                if let Def::Local(nid) = path.def {
+                if let Def::Local(nid) = path.defs.value_ns {
                     // Assignment to an immutable variable or argument: only legal
                     // if there is no later assignment. If this local is actually
                     // mutable, then check for a reassignment to flag the mutability

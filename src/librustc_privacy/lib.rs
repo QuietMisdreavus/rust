@@ -806,18 +806,24 @@ impl<'a, 'tcx> Visitor<'tcx> for TypePrivacyVisitor<'a, 'tcx> {
     // more code internal visibility at link time. (Access to private functions
     // is already prohibited by type privacy for function types.)
     fn visit_qpath(&mut self, qpath: &'tcx hir::QPath, id: ast::NodeId, span: Span) {
-        let def = match *qpath {
-            hir::QPath::Resolved(_, ref path) => match path.def {
-                Def::Method(..) | Def::AssociatedConst(..) |
-                Def::AssociatedTy(..) | Def::Static(..) => Some(path.def),
-                _ => None,
+        let mut defs = Vec::new();
+        match *qpath {
+            hir::QPath::Resolved(_, ref path) => for def in path.defs.valid_defs() {
+                match def {
+                    d @ Def::Method(..) | d @ Def::AssociatedConst(..) |
+                    d @ Def::AssociatedTy(..) | d @ Def::Static(..) => defs.push(d),
+                    _ => (),
+                }
             }
             hir::QPath::TypeRelative(..) => {
                 let hir_id = self.tcx.hir.node_to_hir_id(id);
-                self.tables.type_dependent_defs().get(hir_id).cloned()
+                if let Some(def) = self.tables.type_dependent_defs().get(hir_id).cloned() {
+                    defs.push(def);
+                }
             }
-        };
-        if let Some(def) = def {
+        }
+
+        for def in defs {
             let def_id = def.def_id();
             let is_local_static = if let Def::Static(..) = def { def_id.is_local() } else { false };
             if !self.item_is_accessible(def_id) && !is_local_static {
@@ -1004,7 +1010,7 @@ struct ObsoleteCheckTypeForPrivatenessVisitor<'a, 'b: 'a, 'tcx: 'b> {
 
 impl<'a, 'tcx> ObsoleteVisiblePrivateTypesVisitor<'a, 'tcx> {
     fn path_is_private_type(&self, path: &hir::Path) -> bool {
-        let did = match path.def {
+        let did = match path.defs.assert_single_ns() {
             Def::PrimTy(..) | Def::SelfTy(..) => return false,
             def => def.def_id(),
         };
@@ -1128,7 +1134,7 @@ impl<'a, 'tcx> Visitor<'tcx> for ObsoleteVisiblePrivateTypesVisitor<'a, 'tcx> {
                 let not_private_trait =
                     trait_ref.as_ref().map_or(true, // no trait counts as public trait
                                               |tr| {
-                        let did = tr.path.def.def_id();
+                        let did = tr.path.defs.type_ns.def_id();
 
                         if let Some(node_id) = self.tcx.hir.as_local_node_id(did) {
                             self.trait_is_public(node_id)

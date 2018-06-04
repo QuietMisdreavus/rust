@@ -367,7 +367,7 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
     /// Get the DefId of the given trait ref. It _must_ actually be a trait.
     fn trait_def_id(&self, trait_ref: &hir::TraitRef) -> DefId {
         let path = &trait_ref.path;
-        match path.def {
+        match path.defs.type_ns {
             Def::Trait(trait_def_id) => trait_def_id,
             Def::TraitAlias(alias_def_id) => alias_def_id,
             Def::Err => {
@@ -1004,11 +1004,11 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
                      -> Ty<'tcx> {
         let tcx = self.tcx();
 
-        debug!("base_def_to_ty(def={:?}, opt_self_ty={:?}, path_segments={:?})",
-               path.def, opt_self_ty, path.segments);
+        debug!("base_def_to_ty(defs={:?}, opt_self_ty={:?}, path_segments={:?})",
+               path.defs, opt_self_ty, path.segments);
 
         let span = path.span;
-        match path.def {
+        match path.defs.type_ns {
             Def::Enum(did) | Def::TyAlias(did) | Def::Struct(did) |
             Def::Union(did) | Def::TyForeign(did) => {
                 assert_eq!(opt_self_ty, None);
@@ -1073,7 +1073,7 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
                 self.set_tainted_by_errors();
                 return self.tcx().types.err;
             }
-            _ => span_bug!(span, "unexpected definition: {:?}", path.def)
+            d => span_bug!(span, "unexpected definition: {:?}", d)
         }
     }
 
@@ -1130,7 +1130,7 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
                 let ty = self.ast_ty_to_ty(qself);
 
                 let def = if let hir::TyPath(hir::QPath::Resolved(_, ref path)) = qself.node {
-                    path.def
+                    path.defs.type_ns
                 } else {
                     Def::Err
                 };
@@ -1327,7 +1327,7 @@ fn split_auto_traits<'a, 'b, 'gcx, 'tcx>(tcx: TyCtxt<'a, 'gcx, 'tcx>,
 {
     let (auto_traits, trait_bounds): (Vec<_>, _) = trait_bounds.iter().partition(|bound| {
         // Checks whether `trait_did` is an auto trait and adds it to `auto_traits` if so.
-        match bound.trait_ref.path.def {
+        match bound.trait_ref.path.defs.type_ns {
             Def::Trait(trait_did) if tcx.trait_is_auto(trait_did) => {
                 true
             }
@@ -1336,7 +1336,7 @@ fn split_auto_traits<'a, 'b, 'gcx, 'tcx>(tcx: TyCtxt<'a, 'gcx, 'tcx>,
     });
 
     let auto_traits = auto_traits.into_iter().map(|tr| {
-        if let Def::Trait(trait_did) = tr.trait_ref.path.def {
+        if let Def::Trait(trait_did) = tr.trait_ref.path.defs.type_ns {
             trait_did
         } else {
             unreachable!()

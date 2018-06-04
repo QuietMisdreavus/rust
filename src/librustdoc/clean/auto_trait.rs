@@ -210,7 +210,7 @@ impl<'a, 'tcx, 'rcx> AutoTraitFinder<'a, 'tcx, 'rcx> {
 
             let new_path = hir::Path {
                 span: path.span,
-                def: path.def,
+                defs: path.defs,
                 segments: HirVec::from_vec(segments),
             };
 
@@ -285,7 +285,7 @@ impl<'a, 'tcx, 'rcx> AutoTraitFinder<'a, 'tcx, 'rcx> {
                 None,
                 P(hir::Path {
                     span: DUMMY_SP,
-                    def: Def::TyParam(param.def_id),
+                    defs: Def::TyParam(param.def_id).into(),
                     segments: HirVec::from_vec(vec![
                         hir::PathSegment::from_name(param.name.as_symbol())
                     ]),

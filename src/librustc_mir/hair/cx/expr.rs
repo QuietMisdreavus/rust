@@ -241,7 +241,7 @@ fn make_mirror_unadjusted<'a, 'gcx, 'tcx>(cx: &mut Cx<'a, 'gcx, 'tcx>,
                 let adt_data = if let hir::ExprPath(hir::QPath::Resolved(_, ref path)) = fun.node {
                     // Tuple-like ADTs are represented as ExprCall. We convert them here.
                     expr_ty.ty_adt_def().and_then(|adt_def| {
-                        match path.def {
+                        match path.defs.value_ns {
                             Def::VariantCtor(variant_id, CtorKind::Fn) => {
                                 Some((adt_def, adt_def.variant_index_with_id(variant_id)))
                             }
@@ -436,7 +436,7 @@ fn make_mirror_unadjusted<'a, 'gcx, 'tcx>(cx: &mut Cx<'a, 'gcx, 'tcx>,
                         }
                         AdtKind::Enum => {
                             let def = match *qpath {
-                                hir::QPath::Resolved(_, ref path) => path.def,
+                                hir::QPath::Resolved(_, ref path) => path.defs.type_ns,
                                 hir::QPath::TypeRelative(..) => Def::Err,
                             };
                             match def {

@@ -170,7 +170,7 @@ impl_stable_hash_for!(struct hir::LifetimeDef {
 
 impl_stable_hash_for!(struct hir::Path {
     span,
-    def,
+    defs,
     segments
 });
 
@@ -1068,6 +1068,12 @@ impl_stable_hash_for!(enum hir::def::Def {
     Macro(def_id, macro_kind),
     GlobalAsm(def_id),
     Err
+});
+
+impl_stable_hash_for!(struct hir::def::PerNS<hir::def::Def> {
+    value_ns,
+    type_ns,
+    macro_ns
 });
 
 impl_stable_hash_for!(enum hir::Mutability {

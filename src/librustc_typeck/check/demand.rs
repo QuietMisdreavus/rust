@@ -212,7 +212,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
     /// ```
     fn can_use_as_ref(&self, expr: &hir::Expr) -> Option<(Span, &'static str, String)> {
         if let hir::ExprPath(hir::QPath::Resolved(_, ref path)) = expr.node {
-            if let hir::def::Def::Local(id) = path.def {
+            if let hir::def::Def::Local(id) = path.defs.value_ns {
                 let parent = self.tcx.hir.get_parent_node(id);
                 if let Some(NodeExpr(hir::Expr {
                     id,

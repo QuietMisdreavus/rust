@@ -825,7 +825,9 @@ impl<'a, 'tcx> Visitor<'tcx> for LifetimeContext<'a, 'tcx> {
         for (i, segment) in path.segments.iter().enumerate() {
             let depth = path.segments.len() - i - 1;
             if let Some(ref parameters) = segment.parameters {
-                self.visit_segment_parameters(path.def, depth, parameters);
+                for def in path.defs.valid_defs() {
+                    self.visit_segment_parameters(def, depth, parameters);
+                }
             }
         }
     }
@@ -1228,7 +1230,7 @@ fn object_lifetime_defaults_for_item(
                 }
 
                 let def = match data.bounded_ty.node {
-                    hir::TyPath(hir::QPath::Resolved(None, ref path)) => path.def,
+                    hir::TyPath(hir::QPath::Resolved(None, ref path)) => path.defs.type_ns,
                     _ => continue,
                 };
 
@@ -1819,12 +1821,12 @@ impl<'a, 'tcx> LifetimeContext<'a, 'tcx> {
                 // to the way elision rules were originally specified.
                 let impl_self = impl_self.map(|ty| &ty.node);
                 if let Some(&hir::TyPath(hir::QPath::Resolved(None, ref path))) = impl_self {
-                    match path.def {
+                    match path.defs.type_ns {
                         // Whitelist the types that unambiguously always
                         // result in the same type constructor being used
                         // (it can't differ between `Self` and `self`).
                         Def::Struct(_) | Def::Union(_) | Def::Enum(_) | Def::PrimTy(_) => {
-                            return def == path.def
+                            return def == path.defs.type_ns
                         }
                         _ => {}
                     }
@@ -1835,7 +1837,7 @@ impl<'a, 'tcx> LifetimeContext<'a, 'tcx> {
 
             if let hir::TyRptr(lifetime_ref, ref mt) = inputs[0].node {
                 if let hir::TyPath(hir::QPath::Resolved(None, ref path)) = mt.ty.node {
-                    if is_self_ty(path.def) {
+                    if is_self_ty(path.defs.type_ns) {
                         if let Some(&lifetime) = self.map.defs.get(&lifetime_ref.id) {
                             let scope = Scope::Elision {
                                 elide: Elide::Exact(lifetime),

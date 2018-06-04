@@ -2298,7 +2298,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
     fn is_place_expr(&self, expr: &hir::Expr) -> bool {
          match expr.node {
             hir::ExprPath(hir::QPath::Resolved(_, ref path)) => {
-                match path.def {
+                match path.defs.value_ns {
                     Def::Local(..) | Def::Upvar(..) | Def::Static(..) | Def::Err => true,
                     _ => false,
                 }
@@ -4194,13 +4194,13 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
             hir::QPath::Resolved(ref maybe_qself, ref path) => {
                 let opt_self_ty = maybe_qself.as_ref().map(|qself| self.to_ty(qself));
                 let ty = AstConv::def_to_ty(self, opt_self_ty, path, true);
-                (path.def, ty)
+                (path.defs.type_ns, ty)
             }
             hir::QPath::TypeRelative(ref qself, ref segment) => {
                 let ty = self.to_ty(qself);
 
                 let def = if let hir::TyPath(hir::QPath::Resolved(_, ref path)) = qself.node {
-                    path.def
+                    path.defs.type_ns
                 } else {
                     Def::Err
                 };
@@ -4226,7 +4226,7 @@ impl<'a, 'gcx, 'tcx> FnCtxt<'a, 'gcx, 'tcx> {
     {
         let (ty, item_segment) = match *qpath {
             hir::QPath::Resolved(ref opt_qself, ref path) => {
-                return (path.def,
+                return (path.defs.value_ns,
                         opt_qself.as_ref().map(|qself| self.to_ty(qself)),
                         &path.segments[..]);
             }

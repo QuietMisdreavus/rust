@@ -71,6 +71,12 @@ pub enum Def {
     Err,
 }
 
+impl Default for Def {
+    fn default() -> Self {
+        Def::Err
+    }
+}
+
 /// The result of resolving a path before lowering to HIR.
 /// `base_def` is definition of resolved part of the
 /// path, `unresolved_segments` is the number of unresolved
@@ -131,7 +137,7 @@ pub enum Namespace {
 }
 
 /// Just a helper ‒ separate structure for each namespace.
-#[derive(Clone, Default, Debug)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash, RustcEncodable, RustcDecodable)]
 pub struct PerNS<T> {
     pub value_ns: T,
     pub type_ns: T,
@@ -153,6 +159,35 @@ impl<T> PerNS<Option<T>> {
     /// Returns whether there are no items in any namespace.
     pub fn is_empty(&self) -> bool {
         self.value_ns.is_none() && self.type_ns.is_none() && self.macro_ns.is_none()
+    }
+}
+
+impl PerNS<Def> {
+    /// Ensures that no more than one namespace has a valid `Def`, then returns that `Def` (or
+    /// `Err` if no namespaces had valid `Def`s).
+    pub fn assert_single_ns(self) -> Def {
+        let mut valid_defs = self.into_iter().filter(|d| *d != Def::Err).collect::<Vec<Def>>();
+        if valid_defs.len() > 1 {
+            bug!("single Def was requested but multiple were available: {:?}", valid_defs);
+        }
+        valid_defs.pop().unwrap_or(Def::Err)
+    }
+
+    /// Returns whether all the `Def`s in this collection are `Err`.
+    pub fn all_err(self) -> bool {
+        self.into_iter().all(|d| d == Def::Err)
+    }
+
+    /// Returns an iterator over the valid `Def`s in this collection. If all the `Def`s are `Err`,
+    /// the iterator will yield a single `Err`.
+    pub fn valid_defs(self) -> impl Iterator<Item=Def> {
+        if self.all_err() {
+            vec![Def::Err].into_iter()
+        } else {
+            let mut ret = Vec::with_capacity(3);
+            ret.extend(self.into_iter().filter(|&d| d != Def::Err));
+            ret.into_iter()
+        }
     }
 }
 
@@ -184,6 +219,18 @@ impl<T> IntoIterator for PerNS<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         once(self.type_ns).chain(once(self.value_ns)).chain(once(self.macro_ns))
+    }
+}
+
+impl From<Def> for PerNS<Def> {
+    fn from(src: Def) -> PerNS<Def> {
+        let mut ret = PerNS::<Def>::default();
+
+        if let Some(ns) = src.namespace() {
+            ret[ns] = src;
+        }
+
+        ret
     }
 }
 
@@ -281,6 +328,41 @@ impl Def {
             Def::Macro(.., macro_kind) => macro_kind.descr(),
             Def::GlobalAsm(..) => "global asm",
             Def::Err => "unresolved item",
+        }
+    }
+
+    /// The namespace associated with this Def. Returns `None` for `Err`.
+    pub fn namespace(&self) -> Option<Namespace> {
+        match *self {
+            Def::Mod(..) |
+            Def::Struct(..) |
+            Def::Union(..) |
+            Def::Enum(..) |
+            Def::Variant(..) |
+            Def::Trait(..) |
+            Def::TyAlias(..) |
+            Def::TyForeign(..) |
+            Def::TraitAlias(..) |
+            Def::AssociatedTy(..) |
+            Def::PrimTy(..) |
+            Def::TyParam(..) |
+            Def::SelfTy(..) => Some(TypeNS),
+
+            Def::Fn(..) |
+            Def::Const(..) |
+            Def::Static(..) |
+            Def::StructCtor(..) |
+            Def::VariantCtor(..) |
+            Def::Method(..) |
+            Def::AssociatedConst(..) |
+            Def::Local(..) |
+            Def::Upvar(..) |
+            Def::Label(..) => Some(ValueNS),
+
+            Def::Macro(..) |
+            Def::GlobalAsm(..) => Some(MacroNS),
+
+            Def::Err => None,
         }
     }
 }

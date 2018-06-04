@@ -37,7 +37,8 @@ use rustc::ty::fold::TypeFolder;
 use rustc::middle::lang_items;
 use rustc::mir::interpret::GlobalId;
 use rustc::hir::{self, HirVec};
-use rustc::hir::def::{self, Def, CtorKind};
+use rustc::hir::def::{self, Def, CtorKind, PerNS};
+use rustc::hir::def::Namespace::*;
 use rustc::hir::def_id::{CrateNum, DefId, DefIndex, CRATE_DEF_INDEX, LOCAL_CRATE};
 use rustc::hir::def_id::DefIndexAddressSpace;
 use rustc::ty::subst::Substs;
@@ -287,7 +288,7 @@ impl Clean<ExternalCrate> for CrateNum {
                     }
                     hir::ItemUse(ref path, hir::UseKind::Single)
                     if item.vis == hir::Visibility::Public => {
-                        as_primitive(path.def).map(|(_, prim, attrs)| {
+                        as_primitive(path.defs.type_ns).map(|(_, prim, attrs)| {
                             // Pretend the primitive is local.
                             (cx.tcx.hir.local_def_id(id.id), prim, attrs)
                         })
@@ -329,7 +330,7 @@ impl Clean<ExternalCrate> for CrateNum {
                     }
                     hir::ItemUse(ref path, hir::UseKind::Single)
                     if item.vis == hir::Visibility::Public => {
-                        as_keyword(path.def).map(|(_, prim, attrs)| {
+                        as_keyword(path.defs.type_ns).map(|(_, prim, attrs)| {
                             (cx.tcx.hir.local_def_id(id.id), prim, attrs)
                         })
                     }
@@ -1088,6 +1089,8 @@ fn is_primitive(path_str: &str, is_val: bool) -> Option<Def> {
 /// in the value namespace. Also returns an optional URL fragment in the case
 /// of variants and methods
 fn resolve(cx: &DocContext, path_str: &str, is_val: bool) -> Result<(Def, Option<String>), ()> {
+    let ns = if is_val { ValueNS } else { TypeNS };
+
     // In case we're in a module, try to resolve the relative
     // path
     if let Some(id) = cx.mod_ids.borrow().last() {
@@ -1101,12 +1104,12 @@ fn resolve(cx: &DocContext, path_str: &str, is_val: bool) -> Result<(Def, Option
         if let Ok(result) = result {
             // In case this is a trait item, skip the
             // early return and try looking for the trait
-            let value = match result.def {
+            let value = match result.defs[ns] {
                 Def::Method(_) | Def::AssociatedConst(_) => true,
                 Def::AssociatedTy(_)  => false,
-                Def::Variant(_) => return handle_variant(cx, result.def),
+                d @ Def::Variant(_) => return handle_variant(cx, d),
                 // not a trait item, just return what we found
-                _ => return Ok((result.def, None))
+                d => return Ok((d, None))
             };
 
             if value != is_val {
@@ -1142,8 +1145,10 @@ fn resolve(cx: &DocContext, path_str: &str, is_val: bool) -> Result<(Def, Option
             |resolver| {
                 resolver.resolve_str_path_error(DUMMY_SP, &path, false)
         })?;
-        match ty.def {
-            Def::Struct(did) | Def::Union(did) | Def::Enum(did) | Def::TyAlias(did) => {
+        match ty.defs.type_ns {
+            d @ Def::Struct(..) | d @ Def::Union(..) |
+            d @ Def::Enum(..) | d @ Def::TyAlias(..) => {
+                let did = d.def_id();
                 let item = cx.tcx.inherent_impls(did).iter()
                                  .flat_map(|imp| cx.tcx.associated_items(*imp))
                                  .find(|item| item.name == item_name);
@@ -1153,9 +1158,9 @@ fn resolve(cx: &DocContext, path_str: &str, is_val: bool) -> Result<(Def, Option
                         ty::AssociatedKind::Const if is_val => "associatedconstant",
                         _ => return Err(())
                     };
-                    Ok((ty.def, Some(format!("{}.{}", out, item_name))))
+                    Ok((d, Some(format!("{}.{}", out, item_name))))
                 } else {
-                    let is_enum = match ty.def {
+                    let is_enum = match d {
                         Def::Enum(_) => true,
                         _ => false,
                     };
@@ -1169,7 +1174,7 @@ fn resolve(cx: &DocContext, path_str: &str, is_val: bool) -> Result<(Def, Option
                               .find(|item| item.ident.name == item_name)
                     };
                     if let Some(item) = elem {
-                        Ok((ty.def,
+                        Ok((d,
                             Some(format!("{}.{}",
                                          if is_enum { "variant" } else { "structfield" },
                                          item.ident))))
@@ -1178,7 +1183,8 @@ fn resolve(cx: &DocContext, path_str: &str, is_val: bool) -> Result<(Def, Option
                     }
                 }
             }
-            Def::Trait(did) => {
+            d @ Def::Trait(..) => {
+                let did = d.def_id();
                 let item = cx.tcx.associated_item_def_ids(did).iter()
                              .map(|item| cx.tcx.associated_item(*item))
                              .find(|item| item.name == item_name);
@@ -1196,7 +1202,7 @@ fn resolve(cx: &DocContext, path_str: &str, is_val: bool) -> Result<(Def, Option
                         _ => return Err(())
                     };
 
-                    Ok((ty.def, Some(format!("{}.{}", kind, item_name))))
+                    Ok((d, Some(format!("{}.{}", kind, item_name))))
                 } else {
                     Err(())
                 }
@@ -1562,7 +1568,7 @@ fn external_path(cx: &DocContext, name: &str, trait_did: Option<DefId>, has_self
                  bindings: Vec<TypeBinding>, substs: &Substs) -> Path {
     Path {
         global: false,
-        def: Def::Err,
+        defs: Default::default(),
         segments: vec![PathSegment {
             name: name.to_string(),
             params: external_path_params(cx, trait_did, has_self, bindings, substs)
@@ -2785,18 +2791,18 @@ impl Clean<Type> for hir::Ty {
             },
             TyTup(ref tys) => Tuple(tys.clean(cx)),
             TyPath(hir::QPath::Resolved(None, ref path)) => {
-                if let Some(new_ty) = cx.ty_substs.borrow().get(&path.def).cloned() {
+                if let Some(new_ty) = cx.ty_substs.borrow().get(&path.defs.assert_single_ns()).cloned() {
                     return new_ty;
                 }
 
-                if let Def::TyParam(did) = path.def {
+                if let Def::TyParam(did) = path.defs.type_ns {
                     if let Some(bounds) = cx.impl_trait_bounds.borrow_mut().remove(&did) {
                         return ImplTrait(bounds);
                     }
                 }
 
                 let mut alias = None;
-                if let Def::TyAlias(def_id) = path.def {
+                if let Def::TyAlias(def_id) = path.defs.type_ns {
                     // Substitute private type aliases
                     if let Some(node_id) = cx.tcx.hir.as_local_node_id(def_id) {
                         if !cx.access_levels.borrow().is_exported(def_id) {
@@ -2851,7 +2857,8 @@ impl Clean<Type> for hir::Ty {
                 segments.pop();
                 let trait_path = hir::Path {
                     span: p.span,
-                    def: Def::Trait(cx.tcx.associated_item(p.def.def_id()).container.id()),
+                    defs: Def::Trait(cx.tcx.associated_item(p.defs.assert_single_ns().def_id())
+                                       .container.id()).into(),
                     segments: segments.into(),
                 };
                 Type::QPath {
@@ -2868,7 +2875,7 @@ impl Clean<Type> for hir::Ty {
                 }
                 let trait_path = hir::Path {
                     span: self.span,
-                    def,
+                    defs: def.into(),
                     segments: vec![].into(),
                 };
                 Type::QPath {
@@ -3133,7 +3140,7 @@ impl Clean<Option<Visibility>> for hir::Visibility {
             hir::Visibility::Crate(_) => Visibility::Crate,
             hir::Visibility::Restricted { ref path, .. } => {
                 let path = path.clean(cx);
-                let did = register_def(cx, path.def);
+                let did = register_def(cx, path.defs.type_ns);
                 Visibility::Restricted(did, path)
             }
         })
@@ -3387,7 +3394,7 @@ impl Clean<Span> for syntax_pos::Span {
 #[derive(Clone, RustcEncodable, RustcDecodable, PartialEq, Eq, Debug, Hash)]
 pub struct Path {
     pub global: bool,
-    pub def: Def,
+    pub defs: PerNS<Def>,
     pub segments: Vec<PathSegment>,
 }
 
@@ -3395,7 +3402,7 @@ impl Path {
     pub fn singleton(name: String) -> Path {
         Path {
             global: false,
-            def: Def::Err,
+            defs: Default::default(),
             segments: vec![PathSegment {
                 name,
                 params: PathParameters::AngleBracketed {
@@ -3416,7 +3423,7 @@ impl Clean<Path> for hir::Path {
     fn clean(&self, cx: &DocContext) -> Path {
         Path {
             global: self.is_global(),
-            def: self.def,
+            defs: self.defs,
             segments: if self.is_global() { &self.segments[1..] } else { &self.segments }.clean(cx),
         }
     }
@@ -3511,7 +3518,7 @@ fn strip_path(path: &Path) -> Path {
 
     Path {
         global: path.global,
-        def: path.def.clone(),
+        defs: path.defs.clone(),
         segments,
     }
 }
@@ -3831,28 +3838,33 @@ impl Clean<Vec<Item>> for doctree::Import {
             }
         });
         let path = self.path.clean(cx);
-        let inner = if self.glob {
-            Import::Glob(resolve_use_source(cx, path))
-        } else {
-            let name = self.name;
-            if !denied {
-                let mut visited = FxHashSet();
-                if let Some(items) = inline::try_inline(cx, path.def, name, &mut visited) {
-                    return items;
+        path.defs.valid_defs().fold(vec![], |mut ret, def| {
+            let path = path.clone();
+            let inner = if self.glob {
+                Import::Glob(resolve_use_source(cx, path, def))
+            } else {
+                let name = self.name;
+                if !denied {
+                    let mut visited = FxHashSet();
+                    if let Some(items) = inline::try_inline(cx, def, name, &mut visited) {
+                        ret.extend(items);
+                        return ret;
+                    }
                 }
-            }
-            Import::Simple(name.clean(cx), resolve_use_source(cx, path))
-        };
-        vec![Item {
-            name: None,
-            attrs: self.attrs.clean(cx),
-            source: self.whence.clean(cx),
-            def_id: cx.tcx.hir.local_def_id(ast::CRATE_NODE_ID),
-            visibility: self.vis.clean(cx),
-            stability: None,
-            deprecation: None,
-            inner: ImportItem(inner)
-        }]
+                Import::Simple(name.clean(cx), resolve_use_source(cx, path, def))
+            };
+            ret.push(Item {
+                name: None,
+                attrs: self.attrs.clean(cx),
+                source: self.whence.clean(cx),
+                def_id: cx.tcx.hir.local_def_id(ast::CRATE_NODE_ID),
+                visibility: self.vis.clean(cx),
+                stability: None,
+                deprecation: None,
+                inner: ImportItem(inner)
+            });
+            ret
+        })
     }
 }
 
@@ -4011,7 +4023,7 @@ fn resolve_type(cx: &DocContext,
         debug!("resolve_type({:?},{:?})", path, id);
     }
 
-    let is_generic = match path.def {
+    let is_generic = match path.defs.type_ns {
         Def::PrimTy(p) => match p {
             hir::TyStr => return Primitive(PrimitiveType::Str),
             hir::TyBool => return Primitive(PrimitiveType::Bool),
@@ -4029,7 +4041,7 @@ fn resolve_type(cx: &DocContext,
         Def::SelfTy(..) | Def::TyParam(..) | Def::AssociatedTy(..) => true,
         _ => false,
     };
-    let did = register_def(&*cx, path.def);
+    let did = register_def(&*cx, path.defs.type_ns);
     ResolvedPath { path: path, typarams: None, did: did, is_generic: is_generic }
 }
 
@@ -4063,12 +4075,12 @@ fn register_def(cx: &DocContext, def: Def) -> DefId {
     did
 }
 
-fn resolve_use_source(cx: &DocContext, path: Path) -> ImportSource {
+fn resolve_use_source(cx: &DocContext, path: Path, def: Def) -> ImportSource {
     ImportSource {
-        did: if path.def == Def::Err {
+        did: if def == Def::Err {
             None
         } else {
-            Some(register_def(cx, path.def))
+            Some(register_def(cx, def))
         },
         path,
     }
@@ -4306,7 +4318,7 @@ where F: Fn(DefId) -> Def {
 
     hir::Path {
         span: DUMMY_SP,
-        def: def_ctor(def_id),
+        defs: def_ctor(def_id).into(),
         segments: hir::HirVec::from_vec(apb.names.iter().map(|s| hir::PathSegment {
             name: ast::Name::intern(&s),
             parameters: None,

@@ -738,7 +738,7 @@ impl<'a, 'tcx> Visitor<'tcx> for Checker<'a, 'tcx> {
             // individually as it's possible to have a stable trait with unstable
             // items.
             hir::ItemImpl(.., Some(ref t), _, ref impl_item_refs) => {
-                if let Def::Trait(trait_did) = t.path.def {
+                if let Def::Trait(trait_did) = t.path.defs.type_ns {
                     for impl_item_ref in impl_item_refs {
                         let impl_item = self.tcx.hir.impl_item(impl_item_ref.id);
                         let trait_item_def_id = self.tcx.associated_items(trait_did)
@@ -778,10 +778,12 @@ impl<'a, 'tcx> Visitor<'tcx> for Checker<'a, 'tcx> {
     }
 
     fn visit_path(&mut self, path: &'tcx hir::Path, id: ast::NodeId) {
-        match path.def {
-            Def::Local(..) | Def::Upvar(..) |
-            Def::PrimTy(..) | Def::SelfTy(..) | Def::Err => {}
-            _ => self.tcx.check_stability(path.def.def_id(), Some(id), path.span)
+        for def in path.defs.valid_defs() {
+            match def {
+                Def::Local(..) | Def::Upvar(..) |
+                Def::PrimTy(..) | Def::SelfTy(..) | Def::Err => {}
+                d => self.tcx.check_stability(d.def_id(), Some(id), path.span)
+            }
         }
         intravisit::walk_path(self, path)
     }

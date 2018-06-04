@@ -413,7 +413,7 @@ impl<'a, 'tcx> LateLintPass<'a, 'tcx> for MissingDoc {
             hir::ItemImpl(.., Some(ref trait_ref), _, ref impl_item_refs) => {
                 // If the trait is private, add the impl items to private_traits so they don't get
                 // reported for missing docs.
-                let real_trait = trait_ref.path.def.def_id();
+                let real_trait = trait_ref.path.defs.type_ns.def_id();
                 if let Some(node_id) = cx.tcx.hir.as_local_node_id(real_trait) {
                     match cx.tcx.hir.find(node_id) {
                         Some(hir_map::NodeItem(item)) => {
@@ -1391,7 +1391,7 @@ impl TypeAliasBounds {
                 // If this is a type variable, we found a `T::Assoc`.
                 match ty.node {
                     hir::TyPath(hir::QPath::Resolved(None, ref path)) => {
-                        match path.def {
+                        match path.defs.type_ns {
                             Def::TyParam(_) => true,
                             _ => false
                         }

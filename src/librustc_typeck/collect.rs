@@ -348,7 +348,7 @@ fn is_param<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                       -> bool
 {
     if let hir::TyPath(hir::QPath::Resolved(None, ref path)) = ast_ty.node {
-        match path.def {
+        match path.defs.type_ns {
             Def::SelfTy(Some(def_id), None) |
             Def::TyParam(def_id) => {
                 def_id == tcx.hir.local_def_id(param_id)
@@ -1262,7 +1262,7 @@ fn is_unsized<'gcx: 'tcx, 'tcx>(astconv: &AstConv<'gcx, 'tcx>,
         Some(ref tpb) => {
             // FIXME(#8559) currently requires the unbound to be built-in.
             if let Ok(kind_id) = kind_id {
-                if tpb.path.def != Def::Trait(kind_id) {
+                if tpb.path.defs.type_ns != Def::Trait(kind_id) {
                     tcx.sess.span_warn(span,
                                        "default bound relaxed for a type parameter, but \
                                        this does nothing because the given bound is not \

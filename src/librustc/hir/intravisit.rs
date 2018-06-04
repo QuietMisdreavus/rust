@@ -625,7 +625,9 @@ pub fn walk_qpath<'v, V: Visitor<'v>>(visitor: &mut V, qpath: &'v QPath, id: Nod
 }
 
 pub fn walk_path<'v, V: Visitor<'v>>(visitor: &mut V, path: &'v Path) {
-    visitor.visit_def_mention(path.def);
+    for def in path.defs {
+        visitor.visit_def_mention(def);
+    }
     for segment in &path.segments {
         visitor.visit_path_segment(path.span, segment);
     }

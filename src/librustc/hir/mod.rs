@@ -27,7 +27,7 @@ pub use self::UnOp::*;
 pub use self::UnsafeSource::*;
 pub use self::Visibility::{Public, Inherited};
 
-use hir::def::Def;
+use hir::def::{Def, PerNS};
 use hir::def_id::{DefId, DefIndex, LocalDefId, CRATE_DEF_INDEX};
 use util::nodemap::{NodeMap, FxHashSet};
 use mir::mono::Linkage;
@@ -291,8 +291,10 @@ pub struct LifetimeDef {
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash)]
 pub struct Path {
     pub span: Span,
-    /// The definition that the path resolved to.
-    pub def: Def,
+    /// The definitions that the path resolved to. Since the same path can reference items in
+    /// different namespaces, that information is stored here. Any namespaces without a resolution
+    /// will contain `Def::Err`.
+    pub defs: PerNS<Def>,
     /// The segments in the path: the things separated by `::`.
     pub segments: HirVec<PathSegment>,
 }

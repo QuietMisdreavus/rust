@@ -567,12 +567,23 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn expect_full_def(&mut self, id: NodeId) -> Def {
+        //FIXME: this grabs the first valid resolution - should all users of this function ask for
+        //a specific namespace?
         self.resolver.get_resolution(id).map_or(Def::Err, |pr| {
             if pr.unresolved_segments() != 0 {
                 bug!("path not fully resolved: {:?}", pr);
             }
             pr.base_def()
         })
+    }
+
+    fn expect_full_def_per_ns(&mut self, id: NodeId) -> PerNS<Def> {
+        self.resolver.get_all_resolutions(id).map(|res| res.map_or(Def::Err, |pr| {
+            if pr.unresolved_segments() != 0 {
+                bug!("path not fully resolved: {:?}", pr);
+            }
+            pr.base_def()
+        }))
     }
 
     fn diagnostic(&self) -> &errors::Handler {
@@ -1074,7 +1085,7 @@ impl<'a> LoweringContext<'a> {
             TyKind::ImplicitSelf => hir::TyPath(hir::QPath::Resolved(
                 None,
                 P(hir::Path {
-                    def: self.expect_full_def(t.id),
+                    defs: self.expect_full_def_per_ns(t.id),
                     segments: hir_vec![hir::PathSegment::from_name(keywords::SelfType.name())],
                     span: t.span,
                 }),
@@ -1164,7 +1175,7 @@ impl<'a> LoweringContext<'a> {
                             None,
                             P(hir::Path {
                                 span,
-                                def: Def::TyParam(DefId::local(def_index)),
+                                defs: Def::TyParam(DefId::local(def_index)).into(),
                                 segments: hir_vec![hir::PathSegment::from_name(name)],
                             }),
                         ))
@@ -1383,13 +1394,17 @@ impl<'a> LoweringContext<'a> {
         let qself_position = qself.as_ref().map(|q| q.position);
         let qself = qself.as_ref().map(|q| self.lower_ty(&q.ty, itctx));
 
-        let resolution = self.resolver
-            .get_resolution(id)
-            .unwrap_or(PathResolution::new(Def::Err));
+        let resolutions = self.resolver
+            .get_all_resolutions(id)
+            .map(|res| res.unwrap_or(PathResolution::new(Def::Err)));
 
-        let proj_start = p.segments.len() - resolution.unresolved_segments();
+        //FIXME(misdreavus): when constructing the segments below, the code assumes only one
+        //resolution/def
+        let first_res = self.resolver.get_resolution(id).unwrap_or(PathResolution::new(Def::Err));
+
+        let proj_start = p.segments.len() - first_res.unresolved_segments();
         let path = P(hir::Path {
-            def: resolution.base_def(),
+            defs: resolutions.map(|pr| pr.base_def()),
             segments: p.segments[..proj_start]
                 .iter()
                 .enumerate()
@@ -1410,7 +1425,7 @@ impl<'a> LoweringContext<'a> {
                         krate: def_id.krate,
                         index: this.def_key(def_id).parent.expect("missing parent"),
                     };
-                    let type_def_id = match resolution.base_def() {
+                    let type_def_id = match first_res.base_def() {
                         Def::AssociatedTy(def_id) if i + 2 == proj_start => {
                             Some(parent_def_id(self, def_id))
                         }
@@ -1427,7 +1442,7 @@ impl<'a> LoweringContext<'a> {
                         }
                         _ => None,
                     };
-                    let parenthesized_generic_args = match resolution.base_def() {
+                    let parenthesized_generic_args = match first_res.base_def() {
                         // `a::b::Trait(Args)`
                         Def::Trait(..) if i + 1 == proj_start => ParenthesizedGenericArgs::Ok,
                         // `a::b::Trait(Args)::TraitItem`
@@ -1477,7 +1492,7 @@ impl<'a> LoweringContext<'a> {
 
         // Simple case, either no projections, or only fully-qualified.
         // E.g. `std::mem::size_of` or `<I as Iterator>::Item`.
-        if resolution.unresolved_segments() == 0 {
+        if first_res.unresolved_segments() == 0 {
             return hir::QPath::Resolved(qself, path);
         }
 
@@ -1542,7 +1557,7 @@ impl<'a> LoweringContext<'a> {
         param_mode: ParamMode,
     ) -> hir::Path {
         hir::Path {
-            def: self.expect_full_def(id),
+            defs: self.expect_full_def_per_ns(id),
             segments: p.segments
                 .iter()
                 .map(|segment| {
@@ -2296,7 +2311,7 @@ impl<'a> LoweringContext<'a> {
                         });
 
                         if let Some(ref trait_ref) = trait_ref {
-                            if let Def::Trait(def_id) = trait_ref.path.def {
+                            if let Def::Trait(def_id) = trait_ref.path.defs.type_ns {
                                 this.trait_impls.entry(def_id).or_insert(vec![]).push(id);
                             }
                         }
@@ -2839,7 +2854,7 @@ impl<'a> LoweringContext<'a> {
                         None,
                         P(hir::Path {
                             span: ident.span,
-                            def,
+                            defs: def.into(),
                             segments: hir_vec![hir::PathSegment::from_name(ident.name)],
                         }),
                     )),
@@ -3820,7 +3835,7 @@ impl<'a> LoweringContext<'a> {
             None,
             P(hir::Path {
                 span,
-                def: Def::Local(binding),
+                defs: Def::Local(binding).into(),
                 segments: hir_vec![hir::PathSegment::from_name(id)],
             }),
         ));
@@ -4020,7 +4035,7 @@ impl<'a> LoweringContext<'a> {
         let node = match qpath {
             hir::QPath::Resolved(None, path) => {
                 // Turn trait object paths into `TyTraitObject` instead.
-                if let Def::Trait(_) = path.def {
+                if let Def::Trait(_) = path.defs.type_ns {
                     let principal = hir::PolyTraitRef {
                         bound_generic_params: hir::HirVec::new(),
                         trait_ref: hir::TraitRef {

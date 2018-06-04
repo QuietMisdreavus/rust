@@ -625,14 +625,16 @@ impl<'l, 'tcx: 'l> SaveContext<'l, 'tcx> {
     }
 
     pub fn get_path_def(&self, id: NodeId) -> HirDef {
+        //FIXME: this function should probably return multiple Defs
         match self.tcx.hir.get(id) {
-            Node::NodeTraitRef(tr) => tr.path.def,
+            Node::NodeTraitRef(tr) => tr.path.defs.valid_defs().next().unwrap_or(HirDef::Err),
 
             Node::NodeItem(&hir::Item {
                 node: hir::ItemUse(ref path, _),
                 ..
             }) |
-            Node::NodeVisibility(&hir::Visibility::Restricted { ref path, .. }) => path.def,
+            Node::NodeVisibility(&hir::Visibility::Restricted { ref path, .. }) =>
+                path.defs.valid_defs().next().unwrap_or(HirDef::Err),
 
             Node::NodeExpr(&hir::Expr {
                 node: hir::ExprStruct(ref qpath, ..),
@@ -669,7 +671,8 @@ impl<'l, 'tcx: 'l> SaveContext<'l, 'tcx> {
             } = *ty
             {
                 match *qpath {
-                    hir::QPath::Resolved(_, ref path) => path.def,
+                    hir::QPath::Resolved(_, ref path) =>
+                        path.defs.valid_defs().next().unwrap_or(HirDef::Err),
                     hir::QPath::TypeRelative(..) => {
                         let ty = hir_ty_to_ty(self.tcx, ty);
                         if let ty::TyProjection(proj) = ty.sty {
