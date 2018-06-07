@@ -738,7 +738,7 @@ impl<'a, 'tcx> Visitor<'tcx> for Checker<'a, 'tcx> {
             // individually as it's possible to have a stable trait with unstable
             // items.
             hir::ItemImpl(.., Some(ref t), _, ref impl_item_refs) => {
-                if let Def::Trait(trait_did) = t.path.defs.type_ns {
+                if let Def::Trait(trait_did) = t.path.defs.assert_single_ns() {
                     for impl_item_ref in impl_item_refs {
                         let impl_item = self.tcx.hir.impl_item(impl_item_ref.id);
                         let trait_item_def_id = self.tcx.associated_items(trait_did)

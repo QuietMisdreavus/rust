@@ -367,7 +367,7 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
     /// Get the DefId of the given trait ref. It _must_ actually be a trait.
     fn trait_def_id(&self, trait_ref: &hir::TraitRef) -> DefId {
         let path = &trait_ref.path;
-        match path.defs.type_ns {
+        match path.defs.assert_single_ns() {
             Def::Trait(trait_def_id) => trait_def_id,
             Def::TraitAlias(alias_def_id) => alias_def_id,
             Def::Err => {
@@ -1008,7 +1008,7 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
                path.defs, opt_self_ty, path.segments);
 
         let span = path.span;
-        match path.defs.type_ns {
+        match path.defs.assert_single_ns() {
             Def::Enum(did) | Def::TyAlias(did) | Def::Struct(did) |
             Def::Union(did) | Def::TyForeign(did) => {
                 assert_eq!(opt_self_ty, None);
@@ -1130,7 +1130,7 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
                 let ty = self.ast_ty_to_ty(qself);
 
                 let def = if let hir::TyPath(hir::QPath::Resolved(_, ref path)) = qself.node {
-                    path.defs.type_ns
+                    path.defs.assert_single_ns()
                 } else {
                     Def::Err
                 };
@@ -1327,7 +1327,7 @@ fn split_auto_traits<'a, 'b, 'gcx, 'tcx>(tcx: TyCtxt<'a, 'gcx, 'tcx>,
 {
     let (auto_traits, trait_bounds): (Vec<_>, _) = trait_bounds.iter().partition(|bound| {
         // Checks whether `trait_did` is an auto trait and adds it to `auto_traits` if so.
-        match bound.trait_ref.path.defs.type_ns {
+        match bound.trait_ref.path.defs.assert_single_ns() {
             Def::Trait(trait_did) if tcx.trait_is_auto(trait_did) => {
                 true
             }
@@ -1336,7 +1336,7 @@ fn split_auto_traits<'a, 'b, 'gcx, 'tcx>(tcx: TyCtxt<'a, 'gcx, 'tcx>,
     });
 
     let auto_traits = auto_traits.into_iter().map(|tr| {
-        if let Def::Trait(trait_did) = tr.trait_ref.path.defs.type_ns {
+        if let Def::Trait(trait_did) = tr.trait_ref.path.defs.assert_single_ns() {
             trait_did
         } else {
             unreachable!()

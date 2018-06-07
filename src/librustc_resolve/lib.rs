@@ -2420,7 +2420,7 @@ impl<'a> Resolver<'a> {
         pat.walk(&mut |pat| {
             if let PatKind::Ident(binding_mode, ident, ref sub_pat) = pat.node {
                 if sub_pat.is_some() || match self.get_resolutions(pat.id)
-                                                  .value_ns
+                                                  .assert_single_ns()
                                                   .map(|res| res.base_def()) {
                     Some(Def::Local(..)) => true,
                     _ => false,
@@ -3591,7 +3591,7 @@ impl<'a> Resolver<'a> {
         if filter_fn(Def::Local(ast::DUMMY_NODE_ID)) {
             if let Some(node_id) = self.current_self_type.as_ref().and_then(extract_node_id) {
                 // Look for a field with the same name in the current self_type.
-                if let Some(resolution) = self.get_resolutions(node_id).type_ns {
+                if let Some(resolution) = self.get_resolutions(node_id).assert_single_ns() {
                     match resolution.base_def() {
                         Def::Struct(did) | Def::Union(did)
                                 if resolution.unresolved_segments() == 0 => {

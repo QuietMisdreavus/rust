@@ -3140,7 +3140,7 @@ impl Clean<Option<Visibility>> for hir::Visibility {
             hir::Visibility::Crate(_) => Visibility::Crate,
             hir::Visibility::Restricted { ref path, .. } => {
                 let path = path.clean(cx);
-                let did = register_def(cx, path.defs.type_ns);
+                let did = register_def(cx, path.defs.assert_single_ns());
                 Visibility::Restricted(did, path)
             }
         })

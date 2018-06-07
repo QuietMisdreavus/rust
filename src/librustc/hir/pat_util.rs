@@ -65,8 +65,8 @@ impl hir::Pat {
             PatKind::Path(hir::QPath::Resolved(_, ref path)) |
             PatKind::TupleStruct(hir::QPath::Resolved(_, ref path), ..) |
             PatKind::Struct(hir::QPath::Resolved(_, ref path), ..) => {
-                if let Def::Variant(..) = path.defs.type_ns { true }
-                else if let Def::VariantCtor(..) = path.defs.value_ns { true }
+                if let Def::Variant(..) = path.defs.assert_single_ns() { true }
+                else if let Def::VariantCtor(..) = path.defs.assert_single_ns() { true }
                 else { false }
             }
             PatKind::Slice(..) => true,
@@ -78,7 +78,7 @@ impl hir::Pat {
         match self.node {
             PatKind::Path(hir::QPath::TypeRelative(..)) => true,
             PatKind::Path(hir::QPath::Resolved(_, ref path)) => {
-                match path.defs.value_ns {
+                match path.defs.assert_single_ns() {
                     Def::Const(..) | Def::AssociatedConst(..) => true,
                     _ => false
                 }
@@ -157,9 +157,9 @@ impl hir::Pat {
                 PatKind::Path(hir::QPath::Resolved(_, ref path)) |
                 PatKind::TupleStruct(hir::QPath::Resolved(_, ref path), ..) |
                 PatKind::Struct(hir::QPath::Resolved(_, ref path), ..) => {
-                    if let Def::Variant(id) = path.defs.type_ns {
+                    if let Def::Variant(id) = path.defs.assert_single_ns() {
                         variants.push(id);
-                    } else if let Def::VariantCtor(id, ..) = path.defs.value_ns {
+                    } else if let Def::VariantCtor(id, ..) = path.defs.assert_single_ns() {
                         variants.push(id);
                     }
                 }

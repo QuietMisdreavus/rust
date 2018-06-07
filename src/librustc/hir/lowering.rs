@@ -921,7 +921,7 @@ impl<'a> LoweringContext<'a> {
         match destination {
             Some((id, label)) => {
                 let target_id =
-                    if let Def::Label(loop_id) = self.expect_full_defs(id).value_ns {
+                    if let Def::Label(loop_id) = self.expect_full_defs(id).assert_single_ns() {
                         Ok(self.lower_node_id(loop_id).node_id)
                     } else {
                         Err(hir::LoopIdError::UnresolvedLabel)
@@ -1940,7 +1940,7 @@ impl<'a> LoweringContext<'a> {
                             {
                                 if let Some(Def::TyParam(def_id)) = self.resolver
                                     .get_resolutions(bound_pred.bounded_ty.id)
-                                    .type_ns
+                                    .assert_single_ns()
                                     .map(|d| d.base_def())
                                 {
                                     if let Some(node_id) =
@@ -2301,7 +2301,7 @@ impl<'a> LoweringContext<'a> {
                         });
 
                         if let Some(ref trait_ref) = trait_ref {
-                            if let Def::Trait(def_id) = trait_ref.path.defs.type_ns {
+                            if let Def::Trait(def_id) = trait_ref.path.defs.assert_single_ns() {
                                 this.trait_impls.entry(def_id).or_insert(vec![]).push(id);
                             }
                         }
@@ -2830,7 +2830,7 @@ impl<'a> LoweringContext<'a> {
                     // `None` can occur in body-less function signatures
                     defs @ PerNS { value_ns: None, .. } |
                     defs @ PerNS { value_ns: Some(Def::Local(_)), .. } => {
-                        let canonical_id = match defs.value_ns {
+                        let canonical_id = match defs.assert_single_ns() {
                             Some(Def::Local(id)) => id,
                             _ => p.id,
                         };
@@ -4026,7 +4026,7 @@ impl<'a> LoweringContext<'a> {
         let node = match qpath {
             hir::QPath::Resolved(None, path) => {
                 // Turn trait object paths into `TyTraitObject` instead.
-                if let Def::Trait(_) = path.defs.type_ns {
+                if let Def::Trait(_) = path.defs.assert_single_ns() {
                     let principal = hir::PolyTraitRef {
                         bound_generic_params: hir::HirVec::new(),
                         trait_ref: hir::TraitRef {

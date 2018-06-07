@@ -1134,7 +1134,7 @@ impl<'a, 'tcx> Visitor<'tcx> for ObsoleteVisiblePrivateTypesVisitor<'a, 'tcx> {
                 let not_private_trait =
                     trait_ref.as_ref().map_or(true, // no trait counts as public trait
                                               |tr| {
-                        let did = tr.path.defs.type_ns.def_id();
+                        let did = tr.path.defs.assert_single_ns().def_id();
 
                         if let Some(node_id) = self.tcx.hir.as_local_node_id(did) {
                             self.trait_is_public(node_id)

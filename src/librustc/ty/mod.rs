@@ -271,7 +271,7 @@ impl Visibility {
         match *visibility {
             hir::Public => Visibility::Public,
             hir::Visibility::Crate(_) => Visibility::Restricted(DefId::local(CRATE_DEF_INDEX)),
-            hir::Visibility::Restricted { ref path, .. } => match path.defs.type_ns {
+            hir::Visibility::Restricted { ref path, .. } => match path.defs.assert_single_ns() {
                 // If there is no resolution, `resolve` will have already reported an error, so
                 // assume that the visibility is public to avoid reporting more privacy errors.
                 Def::Err => Visibility::Public,

@@ -17,6 +17,7 @@ use hir;
 use ty;
 
 use std::iter::{once, Once, Chain};
+use std::fmt::Debug;
 
 use self::Namespace::*;
 
@@ -159,6 +160,14 @@ impl<T> PerNS<Option<T>> {
     /// Returns whether there are no items in any namespace.
     pub fn is_empty(&self) -> bool {
         self.value_ns.is_none() && self.type_ns.is_none() && self.macro_ns.is_none()
+    }
+
+    pub fn assert_single_ns(self) -> Option<T> where T: Debug {
+        let mut res = self.into_iter().filter_map(|it| it).collect::<Vec<_>>();
+        if res.len() > 1 {
+            bug!("single item was requested but multiple were available: {:?}", res);
+        }
+        res.pop()
     }
 }
 
