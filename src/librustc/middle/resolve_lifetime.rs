@@ -1230,7 +1230,8 @@ fn object_lifetime_defaults_for_item(
                 }
 
                 let def = match data.bounded_ty.node {
-                    hir::TyPath(hir::QPath::Resolved(None, ref path)) => path.defs.assert_single_ns(),
+                    hir::TyPath(hir::QPath::Resolved(None, ref path)) =>
+                        path.defs.assert_single_ns(),
                     _ => continue,
                 };
 

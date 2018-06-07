@@ -2791,7 +2791,9 @@ impl Clean<Type> for hir::Ty {
             },
             TyTup(ref tys) => Tuple(tys.clean(cx)),
             TyPath(hir::QPath::Resolved(None, ref path)) => {
-                if let Some(new_ty) = cx.ty_substs.borrow().get(&path.defs.assert_single_ns()).cloned() {
+                if let Some(new_ty) =
+                    cx.ty_substs.borrow().get(&path.defs.assert_single_ns()).cloned()
+                {
                     return new_ty;
                 }
 
