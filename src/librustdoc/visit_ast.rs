@@ -365,6 +365,11 @@ impl<'a, 'tcx, 'rcx> RustdocVisitor<'a, 'tcx, 'rcx> {
                 });
                 true
             }
+            hir_map::NodeStructCtor(_) if !glob => {
+                // struct constructors always show up alongside their struct definitions, we've
+                // already processed that so just discard this
+                true
+            }
             _ => false,
         };
         self.view_item_stack.remove(&def_node_id);
@@ -425,17 +430,29 @@ impl<'a, 'tcx, 'rcx> RustdocVisitor<'a, 'tcx, 'rcx> {
                         }
                     });
                     let name = if is_glob { None } else { Some(name) };
-                    for ns in path.defs.valid_defs().filter(|&d| {
-                        self.maybe_inline_local(item.id, d, name, is_glob, om, please_inline)
-                    }).filter_map(|d| d.namespace()) {
-                        path.defs[ns] = Def::Err;
+                    let mut only_err = path.defs.all_err();
+                    for def in path.defs.valid_defs() {
+                        if self.maybe_inline_local(item.id, def, name, is_glob, om, please_inline) {
+                            debug!("definition for {:?} ns in {:?} was inlined, \
+                                    discarding def from import",
+                                   def.namespace(), path);
+                            if let Some(ns) = def.namespace() {
+                                // clear out the Def for this namespace so we don't also document
+                                // the import statement for it
+                                path.defs[ns] = Def::Err;
+                            }
+                        }
                     }
 
-                    if path.defs.all_err() {
+                    if path.defs.all_err() && !only_err {
+                        debug!("all defs from {:?} were inlined, exiting", path);
+                        // everything that was documented here was inlined, so scrap the import
+                        // statement
                         return;
                     }
                 }
 
+                debug!("remaining namespaces for {:?}: {:?}", path, path.defs);
                 om.imports.push(Import {
                     name,
                     id: item.id,
