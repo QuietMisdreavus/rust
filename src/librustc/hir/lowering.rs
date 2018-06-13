@@ -45,7 +45,7 @@ use hir;
 use hir::HirVec;
 use hir::map::{DefKey, DefPathData, Definitions};
 use hir::def_id::{DefId, DefIndex, DefIndexAddressSpace, CRATE_DEF_INDEX};
-use hir::def::{Def, PathResolution};
+use hir::def::{Def, PathResolution, PerNS};
 use lint::builtin::{self, PARENTHESIZED_PARAMS_IN_TYPES_AND_MODULES};
 use middle::cstore::CrateStore;
 use rustc_data_structures::indexed_vec::IndexVec;
@@ -151,6 +151,9 @@ pub trait Resolver {
 
     /// Obtain the resolution for a node id
     fn get_resolution(&mut self, id: NodeId) -> Option<PathResolution>;
+
+    /// Obtain the possible resolutions for the given `use` statement.
+    fn get_import(&mut self, id: NodeId) -> PerNS<Option<PathResolution>>;
 
     /// We must keep the set of definitions up to date as we add nodes that weren't in the AST.
     /// This should only return `None` during testing.
@@ -569,6 +572,21 @@ impl<'a> LoweringContext<'a> {
             }
             pr.base_def()
         })
+    }
+
+    fn expect_full_def_from_use(&mut self, id: NodeId) -> Vec<Def> {
+        let mut ret = self.resolver.get_import(id).present_items().map(|pr| {
+            if pr.unresolved_segments() != 0 {
+                bug!("path not fully resolved: {:?}", pr);
+            }
+            pr.base_def()
+        }).collect::<Vec<_>>();
+
+        if ret.is_empty() {
+            ret.push(Def::Err);
+        }
+
+        ret
     }
 
     fn diagnostic(&self) -> &errors::Handler {
@@ -1532,13 +1550,13 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_path_extra(
         &mut self,
-        id: NodeId,
+        def: Def,
         p: &Path,
         name: Option<Name>,
         param_mode: ParamMode,
     ) -> hir::Path {
         hir::Path {
-            def: self.expect_full_def(id),
+            def,
             segments: p.segments
                 .iter()
                 .map(|segment| {
@@ -1558,7 +1576,8 @@ impl<'a> LoweringContext<'a> {
     }
 
     fn lower_path(&mut self, id: NodeId, p: &Path, param_mode: ParamMode) -> hir::Path {
-        self.lower_path_extra(id, p, None, param_mode)
+        let def = self.expect_full_def(id);
+        self.lower_path_extra(def, p, None, param_mode)
     }
 
     fn lower_path_segment(
@@ -2387,7 +2406,59 @@ impl<'a> LoweringContext<'a> {
                     }
                 }
 
-                let path = P(self.lower_path(id, &path, ParamMode::Explicit));
+                let parent_def_index = self.current_hir_id_owner.last().unwrap().0;
+                let mut defs = self.expect_full_def_from_use(id).into_iter();
+                // we want to return *something* from this function, so hang onto the first item
+                // for later
+                let mut ret_def = defs.next().unwrap_or(Def::Err);
+
+                for def in defs {
+                    let vis = vis.clone();
+                    let name = name.clone();
+                    let span = path.span;
+                    let new_node_id = self.sess.next_node_id();
+                    self.resolver.definitions().create_def_with_parent(
+                        parent_def_index,
+                        new_node_id,
+                        DefPathData::Misc,
+                        DefIndexAddressSpace::High,
+                        Mark::root(),
+                        span);
+                    self.allocate_hir_id_counter(new_node_id, &path);
+
+                    self.with_hir_id_owner(new_node_id, |this| {
+                        let new_id = this.lower_node_id(new_node_id);
+                        let path = this.lower_path_extra(def, &path, None, ParamMode::Explicit);
+                        let item = hir::ItemUse(P(path), hir::UseKind::Single);
+                        let vis = match vis {
+                            hir::Visibility::Public => hir::Visibility::Public,
+                            hir::Visibility::Crate(sugar) => hir::Visibility::Crate(sugar),
+                            hir::Visibility::Inherited => hir::Visibility::Inherited,
+                            hir::Visibility::Restricted { ref path, id: _ } => {
+                                hir::Visibility::Restricted {
+                                    path: path.clone(),
+                                    // We are allocating a new NodeId here
+                                    id: this.next_id().node_id,
+                                }
+                            }
+                        };
+
+                        this.items.insert(
+                            new_id.node_id,
+                            hir::Item {
+                                id: new_id.node_id,
+                                hir_id: new_id.hir_id,
+                                name: name,
+                                attrs: attrs.clone(),
+                                node: item,
+                                vis,
+                                span,
+                            },
+                        );
+                    });
+                }
+
+                let path = P(self.lower_path_extra(ret_def, &path, None, ParamMode::Explicit));
                 hir::ItemUse(path, hir::UseKind::Single)
             }
             UseTreeKind::Glob => {

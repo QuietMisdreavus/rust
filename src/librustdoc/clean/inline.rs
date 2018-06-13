@@ -99,7 +99,7 @@ pub fn try_inline(cx: &DocContext, def: Def, name: ast::Name, visited: &mut FxHa
         }
         // Macros are eagerly inlined back in visit_ast, don't show their export statements
         // FIXME(50647): the eager inline does not take doc(hidden)/doc(no_inline) into account
-        Def::Macro(..) => return Some(Vec::new()),
+        //Def::Macro(..) => return Some(Vec::new()),
         _ => return None,
     };
     cx.renderinfo.borrow_mut().inlined.insert(did);
