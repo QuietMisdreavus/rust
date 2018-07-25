@@ -22,7 +22,7 @@ use infer::region_constraints::{Constraint, RegionConstraintData};
 use infer::{InferCtxt, RegionObligation};
 
 use ty::fold::TypeFolder;
-use ty::{Region, RegionVid};
+use ty::{Region, RegionVid, TypeVariants};
 
 // FIXME(twk): this is obviously not nice to duplicate like that
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
@@ -130,7 +130,55 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
             return AutoTraitResult::ExplicitImpl;
         }
 
-        return tcx.infer_ctxt().enter(|mut infcx| {
+        match self.find_generics(did, trait_did, generics, auto_trait_callback) {
+            Some(gen) => AutoTraitResult::PositiveImpl(gen),
+            None => AutoTraitResult::NegativeImpl,
+        }
+    }
+
+    pub fn find_blanket_trait_generics<A>(
+        &self,
+        did: DefId,
+        trait_did: DefId,
+        generics: &ty::Generics,
+        auto_trait_callback: impl for<'i> Fn(&InferCtxt<'_, 'tcx, 'i>, AutoTraitInfo<'i>) -> A,
+    ) -> Option<A> {
+        let tcx = self.tcx;
+        let ty = self.tcx.type_of(did);
+
+        let mut has_blanket_impl = false;
+
+        tcx.for_each_relevant_impl(trait_did, ty, |impl_def_id| {
+            match tcx.type_of(impl_def_id).sty {
+                TypeVariants::TyParam(_) => {
+                    has_blanket_impl = true;
+                    return;
+                }
+                _ => {},
+            }
+        });
+
+        if !has_blanket_impl {
+            debug!("find_blanket_trait_generics: def_id={:?}, trait_def_id={:?}, \
+                   no blanket impl found, bailing", did, trait_did);
+            None
+        } else {
+            self.find_generics(did, trait_did, generics, auto_trait_callback)
+        }
+    }
+
+    fn find_generics<A>(
+        &self,
+        did: DefId,
+        trait_did: DefId,
+        generics: &ty::Generics,
+        auto_trait_callback: impl for<'i> Fn(&InferCtxt<'_, 'tcx, 'i>, AutoTraitInfo<'i>) -> A,
+    ) -> Option<A> {
+        let tcx = self.tcx;
+        let ty = self.tcx.type_of(did);
+        let orig_params = tcx.param_env(did);
+
+        tcx.infer_ctxt().enter(|mut infcx| {
             let mut fresh_preds = FxHashSet();
 
             // Due to the way projections are handled by SelectionContext, we need to run
@@ -177,7 +225,7 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
                 false,
             ) {
                 Some(e) => e,
-                None => return AutoTraitResult::NegativeImpl,
+                None => return None,
             };
 
             let (full_env, full_user_env) = self.evaluate_predicates(
@@ -197,7 +245,7 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
             });
 
             debug!(
-                "find_auto_trait_generics(did={:?}, trait_did={:?}, generics={:?}): fulfilling \
+                "find_generics(did={:?}, trait_did={:?}, generics={:?}): fulfilling \
                  with {:?}",
                 did, trait_did, generics, full_env
             );
@@ -255,8 +303,8 @@ impl<'a, 'tcx> AutoTraitFinder<'a, 'tcx> {
                 vid_to_region,
             };
 
-            return AutoTraitResult::PositiveImpl(auto_trait_callback(&infcx, info));
-        });
+            Some(auto_trait_callback(&infcx, info))
+        })
     }
 }
 

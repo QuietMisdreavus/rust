@@ -8,6 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+//TODO
+#![allow(unused)]
+
 use rustc::hir;
 use rustc::traits::{self, auto_trait as auto};
 use rustc::ty::{self, ToPredicate, TypeFoldable};
@@ -142,6 +145,7 @@ impl<'a, 'tcx, 'rcx> AutoTraitFinder<'a, 'tcx, 'rcx> {
             let real_name = name.clone().map(|name| Ident::from_str(&name));
             let param_env = self.cx.tcx.param_env(def_id);
             for &trait_def_id in self.cx.all_traits.iter() {
+                debug!("did={:?}, trait_did={:?}", def_id, trait_def_id);
                 if !self.cx.access_levels.borrow().is_doc_reachable(trait_def_id) ||
                    self.cx.generated_synthetics
                           .borrow_mut()
@@ -149,82 +153,91 @@ impl<'a, 'tcx, 'rcx> AutoTraitFinder<'a, 'tcx, 'rcx> {
                           .is_some() {
                     continue
                 }
-                self.cx.tcx.for_each_relevant_impl(trait_def_id, ty, |impl_def_id| {
-                    self.cx.tcx.infer_ctxt().enter(|infcx| {
-                        let t_generics = infcx.tcx.generics_of(impl_def_id);
-                        let trait_ref = infcx.tcx.impl_trait_ref(impl_def_id).unwrap();
+                if let Some(impl_) = self.get_blanket_trait_impl_for(def_id,
+                                                                     name.clone(),
+                                                                     generics.clone(),
+                                                                     def_ctor,
+                                                                     trait_def_id) {
+                    traits.push(impl_);
+                } else {
+                    debug!("---no blanket impl could be found, bailing");
+                }
+                // self.cx.tcx.for_each_relevant_impl(trait_def_id, ty, |impl_def_id| {
+                //     self.cx.tcx.infer_ctxt().enter(|infcx| {
+                //         let t_generics = infcx.tcx.generics_of(impl_def_id);
+                //         let trait_ref = infcx.tcx.impl_trait_ref(impl_def_id).unwrap();
 
-                        match infcx.tcx.type_of(impl_def_id).sty {
-                            ::rustc::ty::TypeVariants::TyParam(_) => {},
-                            _ => return,
-                        }
+                //         match infcx.tcx.type_of(impl_def_id).sty {
+                //             ::rustc::ty::TypeVariants::TyParam(_) => {},
+                //             _ => return,
+                //         }
 
-                        let substs = infcx.fresh_substs_for_item(DUMMY_SP, def_id);
-                        let ty = ty.subst(infcx.tcx, substs);
-                        let param_env = param_env.subst(infcx.tcx, substs);
+                //         let substs = infcx.fresh_substs_for_item(DUMMY_SP, def_id);
+                //         let ty = ty.subst(infcx.tcx, substs);
+                //         let param_env = param_env.subst(infcx.tcx, substs);
 
-                        let impl_substs = infcx.fresh_substs_for_item(DUMMY_SP, impl_def_id);
-                        let trait_ref = trait_ref.subst(infcx.tcx, impl_substs);
+                //         let impl_substs = infcx.fresh_substs_for_item(DUMMY_SP, impl_def_id);
+                //         let trait_ref = trait_ref.subst(infcx.tcx, impl_substs);
 
-                        // Require the type the impl is implemented on to match
-                        // our type, and ignore the impl if there was a mismatch.
-                        let cause = traits::ObligationCause::dummy();
-                        let eq_result = infcx.at(&cause, param_env)
-                                             .eq(trait_ref.self_ty(), ty);
-                        if let Ok(InferOk { value: (), obligations }) = eq_result {
-                            // FIXME(eddyb) ignoring `obligations` might cause false positives.
-                            drop(obligations);
+                //         // Require the type the impl is implemented on to match
+                //         // our type, and ignore the impl if there was a mismatch.
+                //         let cause = traits::ObligationCause::dummy();
+                //         let eq_result = infcx.at(&cause, param_env)
+                //                              .eq(trait_ref.self_ty(), ty);
+                //         if let Ok(InferOk { value: (), obligations }) = eq_result {
+                //             // FIXME(eddyb) ignoring `obligations` might cause false positives.
+                //             drop(obligations);
 
-                            let may_apply = infcx.predicate_may_hold(&traits::Obligation::new(
-                                cause.clone(),
-                                param_env,
-                                trait_ref.to_predicate(),
-                            ));
-                            if !may_apply {
-                                return
-                            }
-                            self.cx.generated_synthetics.borrow_mut()
-                                                        .insert((def_id, trait_def_id));
-                            let trait_ = hir::TraitRef {
-                                path: get_path_for_type(infcx.tcx,
-                                                        trait_def_id,
-                                                        hir::def::Def::Trait),
-                                ref_id: ast::DUMMY_NODE_ID,
-                            };
-                            let provided_trait_methods =
-                                infcx.tcx.provided_trait_methods(trait_def_id)
-                                         .into_iter()
-                                         .map(|meth| meth.ident.to_string())
-                                         .collect();
+                //             let may_apply = infcx.predicate_may_hold(&traits::Obligation::new(
+                //                 cause.clone(),
+                //                 param_env,
+                //                 trait_ref.to_predicate(),
+                //             ));
+                //             if !may_apply {
+                //                 return
+                //             }
+                //             self.cx.generated_synthetics.borrow_mut()
+                //                                         .insert((def_id, trait_def_id));
+                //             let trait_ = hir::TraitRef {
+                //                 path: get_path_for_type(infcx.tcx,
+                //                                         trait_def_id,
+                //                                         hir::def::Def::Trait),
+                //                 ref_id: ast::DUMMY_NODE_ID,
+                //             };
+                //             let provided_trait_methods =
+                //                 infcx.tcx.provided_trait_methods(trait_def_id)
+                //                          .into_iter()
+                //                          .map(|meth| meth.ident.to_string())
+                //                          .collect();
 
-                            let ty = self.get_real_ty(def_id, def_ctor, &real_name, generics);
-                            let predicates = infcx.tcx.predicates_of(def_id);
+                //             let ty = self.get_real_ty(def_id, def_ctor, &real_name, generics);
+                //             let predicates = infcx.tcx.predicates_of(def_id);
 
-                            traits.push(Item {
-                                source: infcx.tcx.def_span(impl_def_id).clean(self.cx),
-                                name: None,
-                                attrs: Default::default(),
-                                visibility: None,
-                                def_id: self.next_def_id(impl_def_id.krate),
-                                stability: None,
-                                deprecation: None,
-                                inner: ImplItem(Impl {
-                                    unsafety: hir::Unsafety::Normal,
-                                    generics: (t_generics, &predicates).clean(self.cx),
-                                    provided_trait_methods,
-                                    trait_: Some(trait_.clean(self.cx)),
-                                    for_: ty.clean(self.cx),
-                                    items: infcx.tcx.associated_items(impl_def_id)
-                                                    .collect::<Vec<_>>()
-                                                    .clean(self.cx),
-                                    polarity: None,
-                                    synthetic: true,
-                                }),
-                            });
-                            debug!("{:?} => {}", trait_ref, may_apply);
-                        }
-                    });
-                });
+                //             traits.push(Item {
+                //                 source: infcx.tcx.def_span(impl_def_id).clean(self.cx),
+                //                 name: None,
+                //                 attrs: Default::default(),
+                //                 visibility: None,
+                //                 def_id: self.next_def_id(impl_def_id.krate),
+                //                 stability: None,
+                //                 deprecation: None,
+                //                 inner: ImplItem(Impl {
+                //                     unsafety: hir::Unsafety::Normal,
+                //                     generics: (t_generics, &predicates).clean(self.cx),
+                //                     provided_trait_methods,
+                //                     trait_: Some(trait_.clean(self.cx)),
+                //                     for_: ty.clean(self.cx),
+                //                     items: infcx.tcx.associated_items(impl_def_id)
+                //                                     .collect::<Vec<_>>()
+                //                                     .clean(self.cx),
+                //                     polarity: None,
+                //                     synthetic: true,
+                //                 }),
+                //             });
+                //             debug!("{:?} => {}", trait_ref, may_apply);
+                //         }
+                //     });
+                // });
             }
         }
 
@@ -351,6 +364,63 @@ impl<'a, 'tcx, 'rcx> AutoTraitFinder<'a, 'tcx, 'rcx> {
         None
     }
 
+    fn get_blanket_trait_impl_for<F>(
+        &self,
+        def_id: DefId,
+        name: Option<String>,
+        generics: ty::Generics,
+        def_ctor: &F,
+        trait_def_id: DefId,
+    ) -> Option<Item>
+    where F: Fn(DefId) -> Def {
+        if !self.cx
+            .generated_synthetics
+            .borrow_mut()
+            .insert((def_id, trait_def_id))
+        {
+            debug!(
+                "get_blanket_trait_impl_for(def_id={:?}, generics={:?}, def_ctor=..., \
+                 trait_def_id={:?}): already generated, aborting",
+                def_id, generics, trait_def_id
+            );
+            return None;
+        }
+
+        let new_generics =
+            if let Some(gens) = self.find_blanket_trait_generics(def_id, trait_def_id, &generics) {
+                gens
+            } else {
+                return None;
+            };
+
+        let trait_ = hir::TraitRef {
+            path: get_path_for_type(self.cx.tcx, trait_def_id, hir::def::Def::Trait),
+            ref_id: ast::DUMMY_NODE_ID,
+        };
+        let real_name = name.map(|name| Ident::from_str(&name));
+        let ty = self.get_real_ty(def_id, def_ctor, &real_name, &generics);
+
+        Some(Item {
+            source: Span::empty(),
+            name: None,
+            attrs: Default::default(),
+            visibility: None,
+            def_id: self.next_def_id(def_id.krate),
+            stability: None,
+            deprecation: None,
+            inner: ImplItem(Impl {
+                unsafety: hir::Unsafety::Normal,
+                generics: new_generics,
+                provided_trait_methods: FxHashSet(),
+                trait_: Some(trait_.clean(self.cx)),
+                for_: ty.clean(self.cx),
+                items: Vec::new(),
+                polarity: None,
+                synthetic: true,
+            }),
+        })
+    }
+
     fn generics_to_path_params(&self, generics: ty::Generics) -> hir::GenericArgs {
         let mut args = vec![];
 
@@ -438,6 +508,41 @@ impl<'a, 'tcx, 'rcx> AutoTraitFinder<'a, 'tcx, 'rcx> {
             auto::AutoTraitResult::NegativeImpl => AutoTraitResult::NegativeImpl,
             auto::AutoTraitResult::PositiveImpl(res) => AutoTraitResult::PositiveImpl(res),
         }
+    }
+
+    fn find_blanket_trait_generics(
+        &self,
+        did: DefId,
+        trait_did: DefId,
+        generics: &ty::Generics,
+    ) -> Option<Generics> {
+        self.f.find_blanket_trait_generics(did, trait_did, generics,
+                |infcx, mut info| {
+                    let region_data = info.region_data;
+                    let names_map =
+                        info.names_map
+                            .drain()
+                            .map(|name| (name.clone(), Lifetime(name)))
+                            .collect();
+                    let lifetime_predicates =
+                        self.handle_lifetimes(&region_data, &names_map);
+                    let new_generics = self.param_env_to_generics(
+                        infcx.tcx,
+                        did,
+                        info.full_user_env,
+                        generics.clone(),
+                        lifetime_predicates,
+                        info.vid_to_region,
+                    );
+
+                    debug!(
+                        "find_auto_trait_generics(did={:?}, trait_did={:?}, generics={:?}): \
+                         finished with {:?}",
+                        did, trait_did, generics, new_generics
+                    );
+
+                    new_generics
+        })
     }
 
     fn get_lifetime(&self, region: Region, names_map: &FxHashMap<String, Lifetime>) -> Lifetime {
